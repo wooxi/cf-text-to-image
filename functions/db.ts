@@ -24,10 +24,19 @@ export async function getApiKey(env: Env, keyName: string): Promise<string> {
   const envVal = (env as any)[keyName.toUpperCase()];
   if (envVal) return envVal;
   try {
-    const row = await env.DB.prepare(
-      "SELECT value FROM config WHERE key = ?"
-    ).bind(keyName).first();
+    const row = await env.DB.prepare("SELECT value FROM config WHERE key = ?").bind(keyName).first();
     if (row && (row as any).value) return (row as any).value;
   } catch {}
   return "";
+}
+
+/** Get config value: env var first, fallback to D1 config table */
+export async function getConfig(env: Env, keyName: string, defaultVal: string): Promise<string> {
+  const envVal = (env as any)[keyName.toUpperCase()];
+  if (envVal) return envVal;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM config WHERE key = ?").bind(keyName).first();
+    if (row && (row as any).value) return (row as any).value;
+  } catch {}
+  return defaultVal;
 }
