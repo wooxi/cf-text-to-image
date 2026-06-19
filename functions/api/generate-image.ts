@@ -1,6 +1,14 @@
 import { requireAuth } from "../auth";
 import type { Env } from "../db";
 
+function normalizeEndpoint(endpoint: string): string {
+  let url = endpoint.replace(/\/+$/, "");
+  if (!/\/\/[^\/]+\/.+/.test(url)) {
+    url += "/v1";
+  }
+  return url;
+}
+
 function parseContentPolicyError(errorData: unknown): string {
   try {
     const err = errorData as Record<string, unknown>;
@@ -21,14 +29,14 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const { prompt, keywords, type, size: reqSize, image, video_mode, width, height, num_frames, frame_rate } = 
       await context.json() as Record<string, any>;
 
-    // Determine which API key to use
-    const endpoint = (context.env as any).IMAGE_ENDPOINT || (context.env as any).LLM_ENDPOINT || "https://api.openai.com/v1";
-    const apiKey = (context.env as any).IMAGE_API_KEY || (context.env as any).LLM_API_KEY;
-    const model = "dall-e-3";
+    const rawEndpoint = (context.env as any).IMAGE_ENDPOINT || context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
+    const endpoint = normalizeEndpoint(rawEndpoint);
+    const apiKey = (context.env as any).IMAGE_API_KEY || context.env.LLM_API_KEY;
+    const model = (context.env as any).IMAGE_MODEL || "dall-e-3";
     const size = reqSize || "1024x1024";
 
     if (!apiKey) {
-      return Response.json({ success: false, error: "请先在 CF Pages 设置页填入 IMAGE_API_KEY" }, { status: 400 });
+      return Response.json({ success: false, error: "请先设置 IMAGE_API_KEY（通过 CF Pages 环境变量）" }, { status: 400 });
     }
 
     const actualPrompt = (prompt || keywords || "").trim();
@@ -37,7 +45,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     }
 
     // Image generation
-    const url = endpoint.replace(/\/+$/, "") + "/images/generations";
+    const url = endpoint + "/images/generations";
     const qualitySuffix = ", professional photography, highly detailed, masterpiece, sharp focus, elegant composition, natural lighting, clean aesthetic";
     
     const imgResponse = await fetch(url, {
@@ -83,7 +91,6 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const filename = `${crypto.randomUUID()}.png`;
     const r2Key = `images/${filename}`;
     
-    // R2 binding is available if configured
     if ((context.env as any).IMAGES_BUCKET) {
       await (context.env as any).IMAGES_BUCKET.put(r2Key, imageBytes, {
         httpMetadata: { contentType: "image/png" },

@@ -1,6 +1,14 @@
 import { requireAuth } from "../auth";
 import type { Env } from "../db";
 
+function normalizeEndpoint(endpoint: string): string {
+  let url = endpoint.replace(/\/+$/, "");
+  if (!/\/\/[^\/]+\/.+/.test(url)) {
+    url += "/v1";
+  }
+  return url;
+}
+
 const SYSTEM_PROMPT = `你是专业的画面描述优化师。润色中文画面描述：更丰富、更有氛围感、更文学化。
 纯中文输出，不加任何前缀或解释，一段话写完。`;
 
@@ -12,15 +20,16 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       return Response.json({ success: false, error: "请输入内容" }, { status: 400 });
     }
 
-    const endpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
+    const rawEndpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
+    const endpoint = normalizeEndpoint(rawEndpoint);
     const apiKey = context.env.LLM_API_KEY;
-    const model = "gpt-4o";
+    const model = context.env.LLM_MODEL || "gpt-4o";
 
     if (!apiKey) {
       return Response.json({ success: false, error: "请先在 CF Pages 设置页填入 LLM_API_KEY" }, { status: 400 });
     }
 
-    const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
+    const url = endpoint + "/chat/completions";
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },

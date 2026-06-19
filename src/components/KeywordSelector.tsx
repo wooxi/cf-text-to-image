@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Keyword, KeywordGroup } from "@/types";
+import { Keyword, KeywordGroup, KeywordFacet } from "@/types";
 
 interface Props {
   groups: KeywordGroup[];
@@ -10,8 +10,20 @@ interface Props {
   onClear?: () => void;
 }
 
+function getSourceKeywords(group: KeywordGroup): Keyword[] {
+  const facets: KeywordFacet[] = (group as any).facets || [];
+  if (facets.length > 0) {
+    return facets.flatMap((f) => f.keywords);
+  }
+  return ((group as any).flattenedKeywords || group.keywords || []) as Keyword[];
+}
+
 function keywordMatchesQuery(keyword: Keyword, normalizedQuery: string) {
   return !normalizedQuery || keyword.name.toLowerCase().includes(normalizedQuery);
+}
+
+function isParamGroup(group: KeywordGroup): boolean {
+  return !!(group as any).isParameterGroup || !!(group as any).parameterGroup || group.slug === "output";
 }
 
 export default function KeywordSelector({ groups, selected, onToggle, onClear }: Props) {
@@ -20,30 +32,36 @@ export default function KeywordSelector({ groups, selected, onToggle, onClear }:
 
   const normalizedQuery = query.trim().toLowerCase();
 
+  const semanticGroups = useMemo(() => {
+    return groups.filter((g) => !isParamGroup(g));
+  }, [groups]);
+
+  const paramGroups = useMemo(() => {
+    return groups.filter((g) => isParamGroup(g));
+  }, [groups]);
+
   const filteredGroups = useMemo(() => {
-    return groups
-      .filter((group) => !group.parameterGroup)
+    return semanticGroups
       .map((group) => {
-        const allKeywords = (group.facets || []).flatMap((f) => f.keywords).filter((kw) => {
+        const sourceKeywords = getSourceKeywords(group);
+        const matching = sourceKeywords.filter((kw) => {
           if (showSelectedOnly && !selected.includes(kw.name)) return false;
           return keywordMatchesQuery(kw, normalizedQuery);
         });
-        return { ...group, flattenedKeywords: allKeywords };
+        return { ...group, flattenedKeywords: matching };
       })
       .filter((group) => group.flattenedKeywords.length > 0 || (!normalizedQuery && !showSelectedOnly));
-  }, [groups, normalizedQuery, selected, showSelectedOnly]);
+  }, [semanticGroups, normalizedQuery, selected, showSelectedOnly]);
 
-  const parameterGroups = groups.filter((group) => group.parameterGroup);
   const parameterKeywords = useMemo(() => {
-    return parameterGroups.flatMap((group) =>
-      (group.facets || []).flatMap((f) =>
-        f.keywords.filter((kw) => {
-          if (showSelectedOnly && !selected.includes(kw.name)) return false;
-          return keywordMatchesQuery(kw, normalizedQuery);
-        }),
-      ),
-    );
-  }, [parameterGroups, normalizedQuery, selected, showSelectedOnly]);
+    return paramGroups.flatMap((group) => {
+      const sourceKeywords = getSourceKeywords(group);
+      return sourceKeywords.filter((kw) => {
+        if (showSelectedOnly && !selected.includes(kw.name)) return false;
+        return keywordMatchesQuery(kw, normalizedQuery);
+      });
+    });
+  }, [paramGroups, normalizedQuery, selected, showSelectedOnly]);
 
   const totalSelected = selected.length;
 
@@ -77,12 +95,11 @@ export default function KeywordSelector({ groups, selected, onToggle, onClear }:
         )}
       </div>
 
-      {/* One row per group — flat chips, no facets */}
+      {/* Semantic groups — flat chips */}
       {filteredGroups.length > 0 && (
         <div className="flex flex-col gap-6">
           {filteredGroups.map((group) => {
             const groupSelected = group.flattenedKeywords.filter((kw) => selected.includes(kw.name)).length;
-
             return (
               <div key={group.id}>
                 <div className="flex items-baseline justify-between gap-3 pb-2 mb-3 border-b border-app-border/40">

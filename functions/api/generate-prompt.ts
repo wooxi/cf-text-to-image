@@ -1,6 +1,15 @@
 import { requireAuth } from "../auth";
 import type { Env } from "../db";
 
+function normalizeEndpoint(endpoint: string): string {
+  let url = endpoint.replace(/\/+$/, "");
+  // If no path component (just domain:port), add /v1
+  if (!/\/\/[^\/]+\/.+/.test(url)) {
+    url += "/v1";
+  }
+  return url;
+}
+
 const IMAGE_SYSTEM_PROMPT = `你是一位顶尖的时尚摄影师和视觉总监。根据用户提供的关键词标签，写一段丰富的画面描述。
 
 规则：
@@ -20,9 +29,10 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     await requireAuth(context.env, context.request);
     const { keywords, mode } = await context.json() as { keywords: any[]; mode?: string };
 
-    const endpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
+    const rawEndpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
+    const endpoint = normalizeEndpoint(rawEndpoint);
     const apiKey = context.env.LLM_API_KEY;
-    const model = "gpt-4o";
+    const model = context.env.LLM_MODEL || "gpt-4o";
 
     if (!apiKey) {
       return Response.json({ success: false, error: "请先在 CF Pages 设置页填入 LLM_API_KEY" }, { status: 400 });
@@ -35,7 +45,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const isVideo = mode === "video";
     const systemPrompt = isVideo ? VIDEO_SYSTEM_PROMPT : IMAGE_SYSTEM_PROMPT;
 
-    const url = endpoint.replace(/\/+$/, "") + "/chat/completions";
+    const url = endpoint + "/chat/completions";
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },

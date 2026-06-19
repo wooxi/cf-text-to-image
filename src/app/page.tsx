@@ -104,6 +104,7 @@ export default function HomePage() {
   const [videoFps, setVideoFps] = useState(24);
   const [liveTasks, setLiveTasks] = useState<TaskRecord[]>([]);
   const [showLogin, setShowLogin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const actionLock = useRef(false);
 
@@ -167,7 +168,9 @@ export default function HomePage() {
           fetchLiveTasks();
           startPolling();
         }
-      });
+        setAuthChecked(true);
+      })
+      .catch(() => setAuthChecked(true));
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
@@ -429,7 +432,9 @@ export default function HomePage() {
         <Header />
 
         {/* ═══ Welcome Hero — logged-out ═══ */}
-        {!loggedIn && (
+        {!authChecked ? (
+          <div className="shrink-0 flex items-center justify-center py-20"><div className="w-6 h-6 border-2 rounded-full animate-spin" style={{"borderColor": "var(--border)", "borderTopColor": "var(--accent)"}} /></div>
+        ) : !loggedIn ? (
           <div className="shrink-0 relative overflow-hidden border-b border-app-border/40" style={{"background": "linear-gradient(135deg, rgba(217,107,43,0.08) 0%, rgba(16,22,24,1) 40%, rgba(136,192,168,0.05) 70%, rgba(16,22,24,1) 100%)"}}>
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
               <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full opacity-[0.06]" style={{"background": "radial-gradient(circle, var(--accent) 0%, transparent 70%)"}} />
@@ -462,7 +467,7 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        )}{/* Stats bar */}
+        ) : null}{/* Stats bar */}
         <div className="shrink-0 flex items-center gap-3 border-b border-app-border/40 bg-[var(--bg-secondary)] px-5 py-2">
           <span className="text-[10px] uppercase tracking-[0.2em] text-app-text3 shrink-0 font-semibold">{MODE_META[mode].eyebrow}</span>
           <span className="h-4 w-px bg-app-border/30 shrink-0" />

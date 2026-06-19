@@ -8,12 +8,19 @@ export default function Header() {
   const { theme, toggle } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener("scroll", onScroll, { passive: true });
-    // Check login status
-    fetch("/api/auth/me").then(r => { if (r.ok) setLoggedIn(true); }).catch(() => {});
+    // Check login status with credentials
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.data) setLoggedIn(true);
+        setAuthChecked(true);
+      })
+      .catch(() => setAuthChecked(true));
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
@@ -60,7 +67,7 @@ export default function Header() {
             创作台
           </Link>
           
-          {loggedIn && (
+          {authChecked && loggedIn && (
             <Link href="/admin" className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
               onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
