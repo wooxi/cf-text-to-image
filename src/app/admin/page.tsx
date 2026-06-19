@@ -17,6 +17,13 @@ const CONFIG_LABELS: Record<string, string> = {
   enable_registration: "开放注册",
 };
 
+// Map model fields to their corresponding endpoint fields
+const MODEL_TO_ENDPOINT: Record<string, string> = {
+  llm_model: "llm_endpoint",
+  image_model: "image_endpoint",
+  video_model: "video_endpoint",
+};
+
 const SECRET_LABELS: Record<string, string> = {
   llm_api_key: "LLM API Key",
   image_api_key: "图像 API Key",
@@ -30,6 +37,10 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [fetchingModel, setFetchingModel] = useState<string | null>(null);
+  const [modelLists, setModelLists] = useState<Record<string, string[]>>({});
+  const [modelDropdown, setModelDropdown] = useState<string | null>(null);
+  const [formRef, setFormRef] = useState<HTMLFormElement | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -118,6 +129,55 @@ export default function AdminPage() {
     setSaving(false);
   }
 
+  async function fetchModels(modelKey: string) {
+    const endpointKey = MODEL_TO_ENDPOINT[modelKey];
+    if (!endpointKey) return;
+
+    // Get current endpoint value from form
+    const endpointInput = document.querySelector(`input[name="${endpointKey}"]`) as HTMLInputElement;
+    const endpoint = endpointInput?.value?.trim();
+    if (!endpoint) {
+      setMessage("请先填写端点地址");
+      return;
+    }
+
+    setFetchingModel(modelKey);
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setModelLists((prev) => ({ ...prev, [modelKey]: data.data }));
+        setModelDropdown(modelKey);
+        setMessage(`找到 ${data.data.length} 个模型`);
+      } else {
+        setMessage(data.error || "获取失败");
+      }
+    } catch {
+      setMessage("网络错误");
+    }
+    setFetchingModel(null);
+  }
+
+  function selectModel(modelKey: string, modelName: string) {
+    const input = document.querySelector(`input[name="${modelKey}"]`) as HTMLInputElement;
+    if (input) {
+      input.value = modelName;
+      // Trigger change event for React controlled input
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, "value"
+      )?.set;
+      nativeInputValueSetter?.call(input, modelName);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    setModelDropdown(null);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -170,6 +230,8 @@ export default function AdminPage() {
     );
   }
 
+  const modelFields = ["llm_model", "image_model", "video_model"];
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -189,22 +251,66 @@ export default function AdminPage() {
       </div>
 
       {/* Config Form */}
-      <form onSubmit={handleSave} className="rounded-2xl border p-6 mb-6" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+      <form onSubmit={handleSave} ref={setFormRef} className="rounded-2xl border p-6 mb-6" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
         <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>端点配置</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          {Object.entries(CONFIG_LABELS).map(([key, label]) => (
-            <div key={key}>
-              <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>{label}</label>
-              <input
-                name={key}
-                type="text"
-                defaultValue={config[key] || ""}
-                className="w-full rounded-lg border px-3 py-2 text-sm transition-colors"
-                style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }}
-                placeholder={key === "enable_registration" ? "true/false" : "https://..."}
-              />
-            </div>
-          ))}
+          {Object.entries(CONFIG_LABELS).map(([key, label]) => {
+            const isModelField = modelFields.includes(key);
+            return (
+              <div key={key}>
+                <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>{label}</label>
+                <div className="flex gap-1.5">
+                  <input
+                    name={key}
+                    type="text"
+                    defaultValue={config[key] || ""}
+                    className="flex-1 rounded-lg border px-3 py-2 text-sm transition-colors"
+                    style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }}
+                    placeholder={key === "enable_registration" ? "true/false" : isModelField ? "gpt-4o" : "https://..."}
+                  />
+                  {isModelField && (
+                    <button
+                      type="button"
+                      onClick={() => fetchModels(key)}
+                      disabled={fetchingModel === key}
+                      className="shrink-0 rounded-lg border px-2.5 py-2 text-xs font-medium transition-all hover:scale-[1.02] disabled:opacity-50"
+                      style={{ borderColor: "var(--accent)", color: "var(--accent)", background: "var(--accent-light)" }}
+                    >
+                      {fetchingModel === key ? "..." : "获取"}
+                    </button>
+                  )}
+                </div>
+                {/* Model dropdown */}
+                {modelDropdown === key && modelLists[key]?.length > 0 && (
+                  <div className="mt-1.5 rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)" }}>
+                    <div className="max-h-48 overflow-y-auto">
+                      {modelLists[key].map((model) => (
+                        <button
+                          key={model}
+                          type="button"
+                          onClick={() => selectModel(key, model)}
+                          className="w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-[var(--accent-light)] block"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {model}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="border-t px-2 py-1" style={{ borderColor: "var(--border)" }}>
+                      <button
+                        type="button"
+                        onClick={() => setModelDropdown(null)}
+                        className="text-[10px]"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        关闭列表
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-6">
@@ -236,7 +342,7 @@ export default function AdminPage() {
                   <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{label}</p>
                   <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>环境变量: {envKey}</p>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded-full font-medium ${isSet ? "" : ""}`}
+                <span className="text-xs px-2 py-1 rounded-full font-medium"
                   style={{
                     background: isSet ? "var(--success-bg)" : "var(--danger-bg)",
                     color: isSet ? "var(--success)" : "var(--danger)",
@@ -261,10 +367,10 @@ export default function AdminPage() {
       </div>
 
       {message && (
-        <div className={`text-sm text-center p-3 rounded-lg ${message.includes("成功") ? "" : ""}`}
+        <div className="text-sm text-center p-3 rounded-lg"
           style={{
-            background: message.includes("成功") ? "var(--success-bg)" : "var(--danger-bg)",
-            color: message.includes("成功") ? "var(--success)" : "var(--danger)",
+            background: message.includes("成功") || message.includes("找到") ? "var(--success-bg)" : "var(--danger-bg)",
+            color: message.includes("成功") || message.includes("找到") ? "var(--success)" : "var(--danger)",
           }}>
           {message}
         </div>
