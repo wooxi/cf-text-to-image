@@ -3,6 +3,8 @@ main = "functions/_middleware.ts"
 compatibility_date = "2025-06-01"
 
 # Build command for Pages
+pages_build_output_dir = "out"
+
 [build]
 command = "npm run build"
 
