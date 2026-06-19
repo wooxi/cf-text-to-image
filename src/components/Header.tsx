@@ -56,13 +56,7 @@ export default function Header() {
           >
             创作台
           </Link>
-          <a href="/admin.html" className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
-          >
-            后台配置
-          </a>
+          
           <button onClick={toggle} className="ml-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
             style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}

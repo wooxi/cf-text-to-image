@@ -15,6 +15,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       ).bind((group as any).id).all();
       
       result.push({
+          facets: [],
+          flattenedKeywords: kws.results.map((k: any) => ({ id: k.id, name: k.name })),
         id: (group as any).id,
         name: (group as any).name,
         slug: (group as any).slug,
