@@ -1,10 +1,9 @@
 import { requireAuth } from "../auth";
 import type { Env } from "../db";
 
-// Sensitive keys stored as CF Secrets, not in DB
+// API keys stored as CF environment variables/secrets, not in DB
 const SECRET_KEYS = [
-  "image_api_key", "llm_api_key", "agnes_api_key",
-  "openai_api_key", "openai_base_url",
+  "llm_api_key", "image_api_key", "video_api_key",
 ];
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
@@ -18,7 +17,6 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     for (const row of configs.results) {
       const r = row as any;
       if (r.is_secret || SECRET_KEYS.includes(r.key)) {
-        // Don't expose the actual value, just show if set
         const envVal = (context.env as any)[r.key.toUpperCase()] || "";
         map[r.key] = envVal ? "••••••••（已设置）" : "未设置";
       } else {
@@ -26,7 +24,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       }
     }
 
-    // Also check env-only secrets
+    // Also check env-only secrets that may not be in DB config table
     for (const key of SECRET_KEYS) {
       if (!(key in map)) {
         const envVal = (context.env as any)[key.toUpperCase()];

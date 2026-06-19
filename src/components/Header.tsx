@@ -7,10 +7,13 @@ import { useState, useEffect } from "react";
 export default function Header() {
   const { theme, toggle } = useTheme();
   const [scrolled, setScrolled] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener("scroll", onScroll, { passive: true });
+    // Check login status
+    fetch("/api/auth/me").then(r => { if (r.ok) setLoggedIn(true); }).catch(() => {});
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
@@ -56,6 +59,16 @@ export default function Header() {
           >
             创作台
           </Link>
+          
+          {loggedIn && (
+            <Link href="/admin" className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+              style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
+            >
+              ⚙️ 配置
+            </Link>
+          )}
           
           <button onClick={toggle} className="ml-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
             style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}

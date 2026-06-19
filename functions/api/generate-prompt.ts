@@ -20,7 +20,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     await requireAuth(context.env, context.request);
     const { keywords, mode } = await context.json() as { keywords: any[]; mode?: string };
 
-    const endpoint = context.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    const endpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
     const apiKey = context.env.LLM_API_KEY;
     const model = "gpt-4o";
 

@@ -22,8 +22,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       await context.json() as Record<string, any>;
 
     // Determine which API key to use
-    const endpoint = (context.env as any).IMAGE_ENDPOINT || context.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-    const apiKey = (context.env as any).IMAGE_API_KEY || context.env.OPENAI_API_KEY;
+    const endpoint = (context.env as any).IMAGE_ENDPOINT || (context.env as any).LLM_ENDPOINT || "https://api.openai.com/v1";
+    const apiKey = (context.env as any).IMAGE_API_KEY || (context.env as any).LLM_API_KEY;
     const model = "dall-e-3";
     const size = reqSize || "1024x1024";
 

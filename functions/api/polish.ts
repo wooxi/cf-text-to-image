@@ -12,7 +12,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       return Response.json({ success: false, error: "请输入内容" }, { status: 400 });
     }
 
-    const endpoint = context.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    const endpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
     const apiKey = context.env.LLM_API_KEY;
     const model = "gpt-4o";
 
