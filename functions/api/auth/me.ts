@@ -1,5 +1,5 @@
-import { requireAuth } from "../auth";
-import type { Env } from "../db";
+import { requireAuth } from "../../auth";
+import type { Env } from "../../db";
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   try {

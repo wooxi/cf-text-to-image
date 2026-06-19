@@ -1,5 +1,5 @@
-import { createToken } from "../auth";
-import type { Env } from "../db";
+import { createToken } from "../../auth";
+import type { Env } from "../../db";
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const { request, env } = context;
