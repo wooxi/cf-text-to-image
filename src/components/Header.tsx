@@ -28,7 +28,6 @@ export default function Header() {
     >
       <div className="mx-auto flex max-w-[124rem] items-center justify-between gap-4 px-4 py-3 sm:px-6 xl:px-8">
         <Link href="/" className="group flex items-center gap-3 shrink-0">
-          {/* Logo mark */}
           <span
             className="flex h-10 w-10 items-center justify-center rounded-2xl border text-base font-bold transition-all duration-300 group-hover:scale-105 group-hover:shadow-[0_0_20px_var(--accent-glow)]"
             style={{
@@ -39,82 +38,35 @@ export default function Header() {
           >
             AI
           </span>
-          {/* Brand */}
           <div className="hidden sm:block">
-            <div
-              className="text-[10px] uppercase tracking-[0.28em] font-medium"
-              style={{ color: "var(--text-muted)" }}
-            >
+            <div className="text-[10px] uppercase tracking-[0.28em] font-medium" style={{ color: "var(--text-muted)" }}>
               Text to Image Studio
             </div>
-            <div
-              className="text-base font-semibold tracking-[0.02em]"
-              style={{ color: "var(--text-primary)" }}
-            >
+            <div className="text-base font-semibold tracking-[0.02em]" style={{ color: "var(--text-primary)" }}>
               文生图工作室
             </div>
           </div>
         </Link>
 
         <nav className="flex items-center gap-1.5 sm:gap-2">
-          <Link
-            href="/"
-            className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-            style={{
-              borderColor: "var(--border)",
-              color: "var(--text-secondary)",
-              background: "transparent",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--border-hover)";
-              e.currentTarget.style.color = "var(--text-primary)";
-              e.currentTarget.style.background = "var(--bg-tertiary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
-              e.currentTarget.style.color = "var(--text-secondary)";
-              e.currentTarget.style.background = "transparent";
-            }}
+          <Link href="/" className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
           >
             创作台
           </Link>
-          <Link
-            href="/admin"
-            className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-            style={{
-              borderColor: "var(--border)",
-              color: "var(--text-secondary)",
-              background: "transparent",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--border-hover)";
-              e.currentTarget.style.color = "var(--text-primary)";
-              e.currentTarget.style.background = "var(--bg-tertiary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
-              e.currentTarget.style.color = "var(--text-secondary)";
-              e.currentTarget.style.background = "transparent";
-            }}
+          <a href="/admin.html" className="rounded-full border px-3.5 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
           >
             后台配置
-          </Link>
-          <button
-            onClick={toggle}
-            className="ml-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
-            style={{
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border)",
-              color: "var(--text-secondary)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--border-hover)";
-              e.currentTarget.style.color = "var(--text-primary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
-              e.currentTarget.style.color = "var(--text-secondary)";
-            }}
+          </a>
+          <button onClick={toggle} className="ml-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
+            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
             title={theme === "dark" ? "切换明亮模式" : "切换暗黑模式"}
           >
             <span className="text-sm leading-none">{theme === "dark" ? "☀️" : "🌙"}</span>
@@ -125,4 +77,3 @@ export default function Header() {
     </header>
   );
 }
-
