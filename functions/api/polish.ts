@@ -1,5 +1,5 @@
 import { requireAuth } from "../auth";
-import { getApiKey } from "./config";
+import { getApiKey } from "../db";
 import type { Env } from "../db";
 
 function normalizeEndpoint(endpoint: string): string {
@@ -13,7 +13,7 @@ const SYSTEM_PROMPT = "你是专业的画面描述优化师。润色中文画面
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const { text } = await context.json() as { text?: string };
+    const { text } = await context.request.json() as { text?: string };
     if (!text?.trim()) {
       return Response.json({ success: false, error: "请输入内容" }, { status: 400 });
     }

@@ -1,5 +1,5 @@
 import { requireAuth } from "../auth";
-import { getApiKey } from "./config";
+import { getApiKey } from "../db";
 import type { Env } from "../db";
 
 function normalizeEndpoint(endpoint: string): string {

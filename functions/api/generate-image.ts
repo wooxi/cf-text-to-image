@@ -1,5 +1,5 @@
 import { requireAuth } from "../auth";
-import { getApiKey } from "./config";
+import { getApiKey } from "../db";
 import type { Env } from "../db";
 
 function normalizeEndpoint(endpoint: string): string {
@@ -19,7 +19,7 @@ function parseError(err: unknown): string {
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const { prompt, keywords, size: reqSize } = await context.json() as Record<string, any>;
+    const { prompt, keywords, size: reqSize } = await context.request.json() as Record<string, any>;
 
     const rawEndpoint = context.env.IMAGE_ENDPOINT || context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
     const endpoint = normalizeEndpoint(rawEndpoint);

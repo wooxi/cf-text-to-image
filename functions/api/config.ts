@@ -1,20 +1,8 @@
 import { requireAuth } from "../auth";
+import { getApiKey } from "../db";
 import type { Env } from "../db";
 
 const SECRET_KEYS = ["llm_api_key", "image_api_key", "video_api_key"];
-
-/** Get API key: env var first, fallback to D1 config table */
-export async function getApiKey(env: Env, keyName: string): Promise<string> {
-  const envVal = (env as any)[keyName.toUpperCase()];
-  if (envVal) return envVal;
-  try {
-    const row = await env.DB.prepare(
-      "SELECT value FROM config WHERE key = ?"
-    ).bind(keyName).first();
-    if (row && (row as any).value) return (row as any).value;
-  } catch {}
-  return "";
-}
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   try {
@@ -58,7 +46,6 @@ export async function onRequestPut(context: { request: Request; env: Env }) {
     for (const [key, value] of Object.entries(body)) {
       if (typeof value !== "string") continue;
       const isSecret = SECRET_KEYS.includes(key) ? 1 : 0;
-
       const existing = await context.env.DB.prepare(
         "SELECT id FROM config WHERE key = ?"
       ).bind(key).first();

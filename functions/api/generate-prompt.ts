@@ -1,5 +1,5 @@
 import { requireAuth } from "../auth";
-import { getApiKey } from "./config";
+import { getApiKey } from "../db";
 import type { Env } from "../db";
 
 function normalizeEndpoint(endpoint: string): string {
@@ -15,7 +15,7 @@ const VIDEO_SYSTEM_PROMPT = "你是顶尖视频导演。润色为更丰富的视
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const { keywords, mode } = await context.json() as { keywords: any[]; mode?: string };
+    const { keywords, mode } = await context.request.json() as { keywords: any[]; mode?: string };
 
     const rawEndpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
     const endpoint = normalizeEndpoint(rawEndpoint);
