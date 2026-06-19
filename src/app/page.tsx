@@ -467,7 +467,7 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        ) : null}{/* Stats bar */}
+        ) : <>{/* Stats bar */}
         <div className="shrink-0 flex items-center gap-3 border-b border-app-border/40 bg-[var(--bg-secondary)] px-5 py-2">
           <span className="text-[10px] uppercase tracking-[0.2em] text-app-text3 shrink-0 font-semibold">{MODE_META[mode].eyebrow}</span>
           <span className="h-4 w-px bg-app-border/30 shrink-0" />
@@ -780,7 +780,7 @@ export default function HomePage() {
             </div>
           </aside>
 
-        </div>
+        </div></>}
 
         {/* Login modal */}
         {showLogin && (
