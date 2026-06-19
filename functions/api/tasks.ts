@@ -29,32 +29,27 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const body = await context.json() as Record<string, any>;
+    const body = await context.request.json() as Record<string, any>;
     const now = new Date().toISOString();
 
-    const result = await context.env.DB.prepare(
-      `INSERT INTO tasks (status, type, keyword_names, prompt, size, reference_image, 
-       video_mode, progress, created_at, updated_at)
-       VALUES ('pending', ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    await context.env.DB.prepare(
+      "INSERT INTO tasks (status, type, keyword_names, prompt, size, reference_image, progress, created_at, updated_at) VALUES ('pending', ?, ?, ?, ?, ?, 0, ?, ?)"
     ).bind(
       body.type || "image",
       body.keywords || "",
       body.prompt || "",
       body.size || "1024x1024",
       Array.isArray(body.image) ? body.image.join(",") : (body.image || ""),
-      body.video_mode || "reference",
       now, now
     ).run();
 
-    return Response.json({
-      success: true,
-      data: { taskId: result.meta.last_row_id }
-    });
+    const lastRow = await context.env.DB.prepare("SELECT last_insert_rowid() as id").first();
+    return Response.json({ success: true, data: { taskId: (lastRow as any)?.id } });
   } catch (e) {
     if ((e as Error).message === "Unauthorized") {
       return Response.json({ success: false, error: "未登录" }, { status: 401 });
     }
-    return Response.json({ success: false, error: "创建任务失败" }, { status: 500 });
+    return Response.json({ success: false, error: "创建失败: " + ((e as Error).message || String(e)) }, { status: 500 });
   }
 }
 
@@ -64,7 +59,6 @@ export async function onRequestDelete(context: { request: Request; env: Env }) {
     const url = new URL(context.request.url);
     const id = url.searchParams.get("id");
     if (!id) return Response.json({ success: false, error: "缺少ID" }, { status: 400 });
-
     await context.env.DB.prepare("DELETE FROM tasks WHERE id = ?").bind(parseInt(id)).run();
     return Response.json({ success: true });
   } catch (e) {
@@ -78,9 +72,8 @@ export async function onRequestDelete(context: { request: Request; env: Env }) {
 export async function onRequestPut(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const body = await context.json() as { id?: number };
+    const body = await context.request.json() as { id?: number };
     if (!body.id) return Response.json({ success: false, error: "缺少ID" }, { status: 400 });
-
     const now = new Date().toISOString();
     await context.env.DB.prepare(
       "UPDATE tasks SET status = 'pending', progress = 0, error = '', updated_at = ? WHERE id = ?"
