@@ -7,6 +7,10 @@ binding = "DB"
 database_name = "txt2img-db"
 database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
 
+[[r2_buckets]]
+binding = "IMAGES_BUCKET"
+bucket_name = "txt2img-images"
+
 [vars]
 ENABLE_REGISTRATION = "true"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
