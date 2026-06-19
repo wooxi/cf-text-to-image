@@ -28,7 +28,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const size = reqSize || "1024x1024";
 
     if (!apiKey) {
-      return Response.json({ success: false, error: "请先设置 IMAGE_API_KEY（通过 wrangler secret put）" }, { status: 400 });
+      return Response.json({ success: false, error: "请先在 CF Pages 设置页填入 IMAGE_API_KEY" }, { status: 400 });
     }
 
     const actualPrompt = (prompt || keywords || "").trim();

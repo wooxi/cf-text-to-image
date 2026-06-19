@@ -13,11 +13,11 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     }
 
     const endpoint = context.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-    const apiKey = context.env.OPENAI_API_KEY;
+    const apiKey = context.env.LLM_API_KEY;
     const model = "gpt-4o";
 
     if (!apiKey) {
-      return Response.json({ success: false, error: "请先设置 OPENAI_API_KEY" }, { status: 400 });
+      return Response.json({ success: false, error: "请先在 CF Pages 设置页填入 LLM_API_KEY" }, { status: 400 });
     }
 
     const url = endpoint.replace(/\/+$/, "") + "/chat/completions";

@@ -6,11 +6,15 @@ export function getDB(env: Env) {
 
 export interface Env {
   DB: D1Database;
-  KV: KVNamespace;
-  JWT_SECRET: string;
+  IMAGES_BUCKET: R2Bucket;
   ENABLE_REGISTRATION: string;
-  OPENAI_API_KEY?: string;
-  OPENAI_BASE_URL?: string;
-  AGNES_API_KEY?: string;
-  AGNES_BASE_URL?: string;
+  LLM_ENDPOINT?: string;
+  LLM_API_KEY?: string;
+  LLM_MODEL?: string;
+  IMAGE_ENDPOINT?: string;
+  IMAGE_API_KEY?: string;
+  IMAGE_MODEL?: string;
+  VIDEO_ENDPOINT?: string;
+  VIDEO_API_KEY?: string;
+  VIDEO_MODEL?: string;
 }
