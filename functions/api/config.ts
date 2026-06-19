@@ -1,10 +1,24 @@
 import { requireAuth } from "../auth";
 import type { Env } from "../db";
 
-// API keys stored as CF environment variables/secrets, not in DB
-const SECRET_KEYS = [
-  "llm_api_key", "image_api_key", "video_api_key",
-];
+const SECRET_KEYS = ["llm_api_key", "image_api_key", "video_api_key"];
+
+/** Get API key: env var first, fallback to D1 config table */
+export async function getApiKey(env: Env, keyName: string): Promise<string> {
+  // 1. Try CF environment variable (encrypted secret)
+  const envVal = (env as any)[keyName.toUpperCase()];
+  if (envVal) return envVal;
+
+  // 2. Fallback to D1 config table
+  try {
+    const row = await env.DB.prepare(
+      "SELECT value FROM config WHERE key = ?"
+    ).bind(keyName).first<{ value: string }>();
+    if (row?.value) return row.value;
+  } catch {}
+
+  return "";
+}
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   try {
@@ -17,18 +31,18 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     for (const row of configs.results) {
       const r = row as any;
       if (r.is_secret || SECRET_KEYS.includes(r.key)) {
-        const envVal = (context.env as any)[r.key.toUpperCase()] || "";
-        map[r.key] = envVal ? "••••••••（已设置）" : "未设置";
+        const val = await getApiKey(context.env, r.key);
+        map[r.key] = val ? "••••••••（已设置）" : "未设置";
       } else {
         map[r.key] = r.value || "";
       }
     }
 
-    // Also check env-only secrets that may not be in DB config table
+    // Also check keys not yet in DB
     for (const key of SECRET_KEYS) {
       if (!(key in map)) {
-        const envVal = (context.env as any)[key.toUpperCase()];
-        map[key] = envVal ? "••••••••（已设置）" : "未设置";
+        const val = await getApiKey(context.env, key);
+        map[key] = val ? "••••••••（已设置）" : "未设置";
       }
     }
 
@@ -48,8 +62,7 @@ export async function onRequestPut(context: { request: Request; env: Env }) {
 
     for (const [key, value] of Object.entries(body)) {
       if (typeof value !== "string") continue;
-      // Never save secret keys through the admin UI
-      if (SECRET_KEYS.includes(key)) continue;
+      const isSecret = SECRET_KEYS.includes(key) ? 1 : 0;
 
       const existing = await context.env.DB.prepare(
         "SELECT id FROM config WHERE key = ?"
@@ -58,12 +71,12 @@ export async function onRequestPut(context: { request: Request; env: Env }) {
 
       if (existing) {
         await context.env.DB.prepare(
-          "UPDATE config SET value = ?, updated_at = ? WHERE key = ?"
-        ).bind(value, now, key).run();
+          "UPDATE config SET value = ?, is_secret = ?, updated_at = ? WHERE key = ?"
+        ).bind(value, isSecret, now, key).run();
       } else {
         await context.env.DB.prepare(
-          "INSERT INTO config (key, value, is_secret, updated_at) VALUES (?, ?, 0, ?)"
-        ).bind(key, value, now).run();
+          "INSERT INTO config (key, value, is_secret, updated_at) VALUES (?, ?, ?, ?)"
+        ).bind(key, value, isSecret, now).run();
       }
     }
 

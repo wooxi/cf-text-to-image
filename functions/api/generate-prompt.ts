@@ -1,28 +1,16 @@
 import { requireAuth } from "../auth";
+import { getApiKey } from "./config";
 import type { Env } from "../db";
 
 function normalizeEndpoint(endpoint: string): string {
   let url = endpoint.replace(/\/+$/, "");
-  // If no path component (just domain:port), add /v1
-  if (!/\/\/[^\/]+\/.+/.test(url)) {
-    url += "/v1";
-  }
+  if (!/\/\/[^\/]+\/.+/.test(url)) url += "/v1";
   return url;
 }
 
-const IMAGE_SYSTEM_PROMPT = `你是一位顶尖的时尚摄影师和视觉总监。根据用户提供的关键词标签，写一段丰富的画面描述。
+const IMAGE_SYSTEM_PROMPT = "你是顶尖时尚摄影师。根据关键词写一段丰富的中文画面描述：从全景到特写，含场景、人物、服装、神态、光影。禁止裸露/透视/暗示性内容。";
 
-规则：
-1. 纯中文输出，高质量文学描写
-2. 用一段话叙述，不列点
-3. 从全景到特写：先场景环境，再到主体人物、服装细节、表情神态、光影氛围
-4. 安全红线：
-   - 不描写身体裸露，改为"衣着得体的""穿着完整的"
-   - 不描写紧身或透明服装，改为"宽松的""垂坠感的"
-   - 需要表现曲线时用"服装的褶皱和垂坠自然勾勒出优雅的轮廓"
-5. 禁止：裸露、透明、透视装、暗示性姿势、浴缸/床上等场景`;
-
-const VIDEO_SYSTEM_PROMPT = `你是一位顶尖视频导演。根据用户描述，润色为更丰富的视频画面描述，补充镜头运动、动作节奏。纯中文输出，一段话写完。`;
+const VIDEO_SYSTEM_PROMPT = "你是顶尖视频导演。润色为更丰富的视频画面描述，补充镜头运动、动作节奏。纯中文，一段话写完。";
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
@@ -31,17 +19,14 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
     const rawEndpoint = context.env.LLM_ENDPOINT || "https://api.openai.com/v1";
     const endpoint = normalizeEndpoint(rawEndpoint);
-    const apiKey = context.env.LLM_API_KEY;
+    const apiKey = await getApiKey(context.env, "llm_api_key");
     const model = context.env.LLM_MODEL || "gpt-4o";
 
     if (!apiKey) {
-      return Response.json({ success: false, error: "请先在 CF Pages 设置页填入 LLM_API_KEY" }, { status: 400 });
+      return Response.json({ success: false, error: "请先在后台管理页设置 LLM_API_KEY" }, { status: 400 });
     }
 
-    const keywordNames = Array.isArray(keywords) 
-      ? keywords.map((k: any) => k.name || k).join(", ")
-      : "";
-
+    const keywordNames = Array.isArray(keywords) ? keywords.map((k: any) => k.name || k).join(", ") : "";
     const isVideo = mode === "video";
     const systemPrompt = isVideo ? VIDEO_SYSTEM_PROMPT : IMAGE_SYSTEM_PROMPT;
 
@@ -53,7 +38,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
         model,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `请根据以下关键词生成画面描述（如果带数字如2048、1024等说明是尺寸，请在描述后注明）：${keywordNames}` },
+          { role: "user", content: `请根据以下关键词生成画面描述：${keywordNames}` },
         ],
         temperature: 0.9,
         max_tokens: 4096,
@@ -61,15 +46,13 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     });
 
     if (!response.ok) {
-      return Response.json({ success: false, error: `LLM 错误: ${await response.text()}` }, { status: 500 });
+      const errText = await response.text();
+      return Response.json({ success: false, error: `LLM 调用失败 (${response.status}): ${errText.substring(0, 200)}` }, { status: 502 });
     }
 
     const data = await response.json() as any;
     const prompt = data.choices?.[0]?.message?.content?.trim();
-
-    if (!prompt) {
-      return Response.json({ success: false, error: "生成失败" }, { status: 500 });
-    }
+    if (!prompt) return Response.json({ success: false, error: "生成结果为空" }, { status: 500 });
 
     return Response.json({ success: true, data: { prompt } });
   } catch (e) {
