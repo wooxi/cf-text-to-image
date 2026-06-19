@@ -5,18 +5,14 @@ const SECRET_KEYS = ["llm_api_key", "image_api_key", "video_api_key"];
 
 /** Get API key: env var first, fallback to D1 config table */
 export async function getApiKey(env: Env, keyName: string): Promise<string> {
-  // 1. Try CF environment variable (encrypted secret)
   const envVal = (env as any)[keyName.toUpperCase()];
   if (envVal) return envVal;
-
-  // 2. Fallback to D1 config table
   try {
     const row = await env.DB.prepare(
       "SELECT value FROM config WHERE key = ?"
-    ).bind(keyName).first<{ value: string }>();
-    if (row?.value) return row.value;
+    ).bind(keyName).first();
+    if (row && (row as any).value) return (row as any).value;
   } catch {}
-
   return "";
 }
 
@@ -38,7 +34,6 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       }
     }
 
-    // Also check keys not yet in DB
     for (const key of SECRET_KEYS) {
       if (!(key in map)) {
         const val = await getApiKey(context.env, key);
@@ -58,7 +53,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 export async function onRequestPut(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const body = await context.json() as Record<string, string>;
+    const body = await context.request.json() as Record<string, string>;
 
     for (const [key, value] of Object.entries(body)) {
       if (typeof value !== "string") continue;
