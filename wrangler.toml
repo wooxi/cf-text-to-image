@@ -1,0 +1,34 @@
+name = "cf-text-to-image"
+main = "functions/_middleware.ts"
+compatibility_date = "2025-06-01"
+
+# Build command for Pages
+[build]
+command = "npm run build"
+
+# D1 Database (SQLite-compatible)
+[[d1_databases]]
+binding = "DB"
+database_name = "txt2img-db"
+database_id = "create-later"
+
+# KV for sessions/cache (optional)
+[[kv_namespaces]]
+binding = "KV"
+id = "create-later"
+
+# R2 for image storage
+[[r2_buckets]]
+binding = "IMAGES_BUCKET"
+bucket_name = "txt2img-images"
+
+# Environment variables (non-secret)
+[vars]
+JWT_SECRET = ""
+ENABLE_REGISTRATION = "true"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+# ⚠️ API KEYS — NEVER put values here!
+# Set via: wrangler secret put OPENAI_API_KEY
+# Set via: wrangler secret put IMAGE_API_KEY
+# Set via: wrangler secret put AGNES_API_KEY
