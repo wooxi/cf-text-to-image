@@ -124,7 +124,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     await env.IMAGES_BUCKET.put(r2Key, bytes, { httpMetadata: { contentType: "image/png" } });
   }
 
-  const imagePath = env.IMAGES_BUCKET ? `/images/${filename}` :
+  const imagePath = env.IMAGES_BUCKET ? `/api/images?file=${filename}` :
     `data:image/png;base64,${btoa(String.fromCharCode(...new Uint8Array(bytes)))}`;
 
   // Save to history
