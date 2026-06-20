@@ -67,7 +67,6 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const lastRow = await context.env.DB.prepare("SELECT last_insert_rowid() as id").first();
     const taskId = (lastRow as any)?.id as number;
 
-    // Process synchronously within the request lifecycle
     try {
       if (isVideo) {
         await processVideo(context.env, taskId, body);
@@ -111,9 +110,11 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   const useEditsEndpoint = isImg2img && imageProvider !== "agnes_image";
   const imgUrl = endpoint + (useEditsEndpoint ? "/images/edits" : "/images/generations");
 
+  // Match original project: openai_image sends { model, prompt, size } (no n, no extra_body)
+  // agnes_image sends { model, prompt, size, extra_body: { response_format: "url" } }
   const reqBody: Record<string, any> = imageProvider === "agnes_image"
     ? { model, prompt: finalPrompt, size, extra_body: { response_format: "url" } }
-    : { model, prompt: finalPrompt, n: 1, size };
+    : { model, prompt: finalPrompt, size };
 
   if (isImg2img && body.image) {
     let images = Array.isArray(body.image) ? body.image : [body.image];
@@ -138,38 +139,28 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     }
 
     if (imageProvider === "agnes_image") {
-      reqBody.extra_body = { ...reqBody.extra_body, image: images[0] };
-    } else if (imageProvider === "openai_image" && useEditsEndpoint) {
-      reqBody.image = images[0];
+      if (!reqBody.extra_body) reqBody.extra_body = { response_format: "url" };
+      reqBody.extra_body.image = images.length === 1 ? images[0] : images;
     } else {
-      reqBody.extra_body = { ...(reqBody.extra_body || {}), image: images[0] };
+      reqBody.image = images.length === 1 ? images[0] : images;
     }
   }
 
-  let resp: Response | undefined;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 2000));
-    try {
-      resp = await fetch(imgUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-        body: JSON.stringify(reqBody),
-      });
-    } catch (fetchErr) {
-      if (attempt < 2) continue;
-      throw new Error("生图请求失败: " + (fetchErr as Error).message);
-    }
-    if (resp.status !== 429 && resp.status !== 502 && resp.status !== 503 && resp.status !== 504) break;
-  }
+  // No retry - one request, fail immediately with real error
+  const resp = await fetch(imgUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+    body: JSON.stringify(reqBody),
+  });
 
-  if (!resp!.ok) {
-    const txt = await resp!.text();
+  if (!resp.ok) {
+    const txt = await resp.text();
     let err = txt;
     try { err = JSON.parse(txt).error?.message || txt; } catch {}
-    throw new Error("生图失败(" + resp!.status + "): " + err.substring(0, 200));
+    throw new Error("生图失败(" + resp.status + "): " + err.substring(0, 200));
   }
 
-  const data = await resp!.json() as any;
+  const data = await resp.json() as any;
   if (data.error) throw new Error("生图失败: " + (data.error.message || "未知错误"));
 
   const img = data.data?.[0];
