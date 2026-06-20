@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN request_json TEXT NOT NULL DEFAULT '';

@@ -1,6 +1,6 @@
-name = "cf-text-to-image"
+name = "cf-text-to-image-task-consumer"
+main = "task-consumer.ts"
 compatibility_date = "2025-06-01"
-pages_build_output_dir = "out"
 
 [[d1_databases]]
 binding = "DB"
@@ -11,10 +11,8 @@ database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
 binding = "IMAGES_BUCKET"
 bucket_name = "txt2img-images"
 
-[[queues.producers]]
-binding = "TASK_QUEUE"
+[[queues.consumers]]
 queue = "txt2img-task-queue"
-
-[vars]
-JWT_SECRET = "v1xpyobqemq4nvyblm3ev2irspcilq2a"
-ENABLE_REGISTRATION = "true"
+max_batch_size = 5
+max_batch_timeout = 2
+max_retries = 1

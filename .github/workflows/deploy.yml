@@ -10,7 +10,7 @@ jobs:
     permissions:
       contents: read
       deployments: write
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,9 +22,20 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      - name: Ensure Queue exists
+        run: npx wrangler queues create txt2img-task-queue || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy out --project-name=cf-text-to-image --branch=master
+        run: npx wrangler pages deploy out --project-name=cf-text-to-image --branch=master
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Queue Consumer Worker
+        run: npx wrangler deploy --config queue-worker/wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
