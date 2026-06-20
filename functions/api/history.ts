@@ -10,6 +10,9 @@ function mapRecord(row: any) {
     type: row.type || "image",
     posterPath: row.poster_path || "",
     createdAt: row.created_at || "",
+    size: row.size || "",
+    status: row.status || "",
+    error: row.error || "",
   };
 }
 

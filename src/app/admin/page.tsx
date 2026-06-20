@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 /* ─── types ─── */
-interface HistoryItem { id: number; keywordNames: string; prompt: string; imagePath: string; type: string; posterPath: string; createdAt: string; }
+interface HistoryItem { id: number; keywordNames: string; prompt: string; imagePath: string; type: string; posterPath: string; createdAt: string; size: string; status: string; error: string; }
 interface KeywordGroup { id: number; name: string; slug: string; keywords: { id: number; name: string }[]; }
 
 const MODEL_GROUPS = [
@@ -509,43 +509,41 @@ export default function AdminPage() {
           {/* ── 生成历史 ── */}
           {menuKey === "history" && (
             <div>
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>生成历史</h2>
-                  <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>全部生成记录，共 {history.length} 条</p>
+                  <h2 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>生成历史</h2>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>共 {history.length} 条记录</p>
                 </div>
-                <button onClick={loadHistory} className="rounded-lg border px-4 py-2 text-xs font-medium" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-tertiary)" }}>刷新</button>
+                <button onClick={loadHistory} className="rounded-lg border px-3 py-1.5 text-xs font-medium" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-tertiary)" }}>刷新</button>
               </div>
               {historyLoading ? (
-                <div className="flex items-center justify-center py-16"><div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} /></div>
+                <div className="flex items-center justify-center py-12"><div className="w-5 h-5 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} /></div>
               ) : history.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3"><span className="text-3xl opacity-30">🖼️</span><p className="text-sm" style={{ color: "var(--text-muted)" }}>暂无生成记录</p></div>
+                <div className="flex flex-col items-center justify-center py-12 gap-2"><span className="text-2xl opacity-30">🖼️</span><p className="text-xs" style={{ color: "var(--text-muted)" }}>暂无生成记录</p></div>
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <div className="space-y-2">
                   {history.map(h => (
-                    <div key={h.id} className="rounded-xl border overflow-hidden transition-all hover:shadow-lg" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-                      {/* Image thumbnail */}
-                      <div className="relative aspect-square overflow-hidden bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => window.open(h.imagePath, "_blank")}>
+                    <div key={h.id} className="flex gap-3 rounded-lg border p-3 transition-all hover:shadow-sm" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                      {/* Thumbnail */}
+                      <div className="shrink-0 w-16 h-16 rounded-md overflow-hidden bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => window.open(h.imagePath, "_blank")}>
                         {h.imagePath ? (
-                          <img src={h.imagePath} alt={h.prompt || h.keywordNames} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          <img src={h.imagePath} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; (e.target as HTMLImageElement).parentElement!.innerHTML = "<span style='font-size:20px;display:flex;align-items:center;justify-content:center;height:100%'>🖼</span>"; }} />
                         ) : (
-                          <div className="flex items-center justify-center h-full text-xs" style={{ color: "var(--text-muted)" }}>暂无图片</div>
+                          <div className="flex items-center justify-center h-full text-lg opacity-40">🖼</div>
                         )}
-                        {/* Type badge */}
-                        <span className="absolute top-2 left-2 text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ background: h.type === "video" ? "var(--accent-light)" : "rgba(34,197,94,0.15)", color: h.type === "video" ? "var(--accent)" : "rgb(34,197,94)" }}>{h.type || "image"}</span>
                       </div>
                       {/* Details */}
-                      <div className="p-3 space-y-1.5">
-                        <p className="text-xs leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>{h.prompt || h.keywordNames || "（无描述）"}</p>
-                        {h.keywordNames && h.prompt !== h.keywordNames && (
-                          <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>关键词: {h.keywordNames}</p>
-                        )}
-                        <div className="flex items-center justify-between pt-1">
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: h.type === "video" ? "var(--accent-light)" : "rgba(34,197,94,0.12)", color: h.type === "video" ? "var(--accent)" : "rgb(34,197,94)" }}>{h.type || "img"}</span>
+                          {h.size && <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{h.size}</span>}
                           <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{new Date(h.createdAt).toLocaleString("zh-CN")}</span>
-                          <div className="flex gap-2">
-                            <a href={h.imagePath} target="_blank" className="text-[10px] font-medium" style={{ color: "var(--accent)" }}>打开</a>
-                            <button onClick={() => deleteHistory(h.id)} className="text-[10px] font-medium" style={{ color: "var(--danger)" }}>删除</button>
-                          </div>
+                        </div>
+                        <p className="text-xs leading-relaxed line-clamp-1" style={{ color: "var(--text-secondary)" }} title={h.prompt || h.keywordNames}>{h.prompt || h.keywordNames || "（无描述）"}</p>
+                        <div className="flex items-center gap-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {h.keywordNames && h.prompt !== h.keywordNames && <span className="truncate max-w-[200px]">关键词: {h.keywordNames}</span>}
+                          <a href={h.imagePath} target="_blank" style={{ color: "var(--accent)" }}>查看原图</a>
+                          <button onClick={() => deleteHistory(h.id)} style={{ color: "var(--danger)" }}>删除</button>
                         </div>
                       </div>
                     </div>

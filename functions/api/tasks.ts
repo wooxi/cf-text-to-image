@@ -67,17 +67,20 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const lastRow = await context.env.DB.prepare("SELECT last_insert_rowid() as id").first();
     const taskId = (lastRow as any)?.id as number;
 
-    try {
-      if (isVideo) {
-        await processVideo(context.env, taskId, body);
-      } else {
-        await processImage(context.env, taskId, body);
+    // Process in background via waitUntil - response returns immediately
+    context.waitUntil((async () => {
+      try {
+        if (isVideo) {
+          await processVideo(context.env, taskId, body);
+        } else {
+          await processImage(context.env, taskId, body);
+        }
+      } catch (procErr) {
+        await context.env.DB.prepare(
+          "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
+        ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
       }
-    } catch (procErr) {
-      await context.env.DB.prepare(
-        "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
-      ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
-    }
+    })());
 
     return Response.json({ success: true, data: { taskId } });
   } catch (e) {
@@ -181,8 +184,8 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     "data:image/png;base64," + btoa(String.fromCharCode(...new Uint8Array(bytes)));
 
   await env.DB.prepare(
-    "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at) VALUES (?, ?, ?, 'image', ?)"
-  ).bind(body.keywords || "", body.prompt || actualPrompt, imagePath, new Date().toISOString()).run();
+    "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at, size) VALUES (?, ?, ?, 'image', ?, ?)"
+  ).bind(body.keywords || "", body.prompt || actualPrompt, imagePath, new Date().toISOString(), body.size || "1024x1024").run();
 
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, updated_at = ? WHERE id = ?"
