@@ -245,21 +245,34 @@ export async function onRequestDelete(context: { request: Request; env: Env }) {
 export async function onRequestPut(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const body = await context.request.json() as { id?: number; type?: string; keywords?: string; prompt?: string; size?: string; image?: string[] };
+    const body = await context.request.json() as { id?: number };
     if (!body.id) return Response.json({ success: false, error: "缺少ID" }, { status: 400 });
-    
+
+    // Read original task data from DB
+    const task = await context.env.DB.prepare("SELECT * FROM tasks WHERE id = ?").bind(body.id).first() as any;
+    if (!task) return Response.json({ success: false, error: "任务不存在" }, { status: 404 });
+
     const now = new Date().toISOString();
     await context.env.DB.prepare(
       "UPDATE tasks SET status = 'processing', progress = 0, error = '', updated_at = ? WHERE id = ?"
     ).bind(now, body.id).run();
 
+    // Reconstruct body from DB record for processing
+    const procBody: Record<string, any> = {
+      type: task.type || "image",
+      keywords: task.keyword_names || "",
+      prompt: task.prompt || "",
+      size: task.size || "1024x1024",
+      image: task.reference_image ? task.reference_image.split(",").filter(Boolean) : [],
+    };
+
     const taskId = body.id;
-    const isVideo = body.type === "video";
+    const isVideo = procBody.type === "video";
     try {
       if (isVideo) {
-        await processVideo(context.env, taskId, body);
+        await processVideo(context.env, taskId, procBody);
       } else {
-        await processImage(context.env, taskId, body);
+        await processImage(context.env, taskId, procBody);
       }
     } catch (procErr) {
       await context.env.DB.prepare(
