@@ -7,7 +7,8 @@ import KeywordSelector from "@/components/KeywordSelector";
 import ImageUploader from "@/components/ImageUploader";
 import MasonryGallery from "@/components/MasonryGallery";
 import MobileHome from "@/components/MobileHome";
-import LoginModal from "@/components/LoginModal";
+import LoginModal from "@/components/LoginModal"
+import FullscreenViewer from "@/components/FullscreenViewer";
 import { KeywordFacet, KeywordGroup, ImageRecord } from "@/types";
 
 const SIZE_MAP: [string, string][] = [
@@ -98,6 +99,7 @@ export default function HomePage() {
   const [refImages, setRefImages] = useState<string[]>([]);
   const [videoRefImages, setVideoRefImages] = useState<string[]>([]);
   const [videoMode, setVideoMode] = useState<"reference" | "keyframes">("reference");
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [videoWidth, setVideoWidth] = useState(1920);
   const [videoHeight, setVideoHeight] = useState(1080);
   const [videoFrames, setVideoFrames] = useState(121);
@@ -700,7 +702,7 @@ export default function HomePage() {
 
                 {/* Gallery */}
                 <div className="pt-3 border-t border-app-border/30">
-                  <MasonryGallery records={records} liveTasks={liveTasks} onDelete={handleDeleteHistory} onDeleteTask={handleDeleteTask} loading={loading} />
+                  <MasonryGallery records={records} liveTasks={liveTasks} onDelete={handleDeleteHistory} onDeleteTask={handleDeleteTask} onImageClick={(r) => setViewerIndex(records.indexOf(r))} loading={loading} />
                 </div>
               </div>
             </div>
@@ -860,7 +862,9 @@ export default function HomePage() {
       </div>
 
       {/* ═══════════ MOBILE ═══════════ */}
-      <div className="lg:hidden">
+      
+      {viewerIndex !== null && <FullscreenViewer records={records} activeIndex={viewerIndex} onClose={() => setViewerIndex(null)} onDelete={(id) => { handleDeleteHistory(id); setViewerIndex(null); }} />}
+<div className="lg:hidden">
         <MobileHome
           loggedIn={loggedIn}
           groups={groups}

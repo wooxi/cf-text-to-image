@@ -122,7 +122,7 @@ export default function MobileHome(props: Props) {
     </div>
   );
 
-  const renderGalleryTab = () => (<div className="flex flex-col h-full"><div className="flex-1 overflow-y-auto px-4 py-3 overscroll-contain"><MasonryGallery records={records} liveTasks={liveTasks} onDelete={onDeleteHistory} onDeleteTask={onDeleteTask} loading={records.length === 0 && !loading} /></div></div>);
+  const renderGalleryTab = () => (<div className="flex flex-col h-full"><div className="flex-1 overflow-y-auto px-4 py-3 overscroll-contain"><MasonryGallery records={records} liveTasks={liveTasks} onDelete={onDeleteHistory} onDeleteTask={onDeleteTask} onImageClick={(r) => setViewerIndex(records.indexOf(r))} loading={records.length === 0 && !loading} /></div></div>);
 
   const renderTasksTab = () => (
     <div className="flex flex-col h-full overflow-y-auto px-4 py-4 space-y-3 overscroll-contain">
@@ -149,6 +149,8 @@ export default function MobileHome(props: Props) {
       <div className="shrink-0 flex border-t border-[var(--border)] bg-[var(--bg-secondary)]" style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))", boxShadow: "0 -1px 8px rgba(0,0,0,0.25)" }}>
         {tabs.map((t) => (<button key={t.key} onClick={() => setTab(t.key as typeof tab)} className="flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition" style={{ color: tab === t.key ? "var(--accent)" : "var(--text-muted)" }}><span className="text-lg leading-none">{t.icon}</span><span className="text-[10px] font-medium relative">{t.label}{t.badge !== undefined && t.badge > 0 && (<span className="absolute -top-1 -right-3 w-3.5 h-3.5 rounded-full bg-[var(--danger)] text-white text-[8px] flex items-center justify-center">{t.badge}</span>)}</span></button>))}
       </div>
-    </div>
+    
+      {viewerIndex !== null && <FullscreenViewer records={records} activeIndex={viewerIndex} onClose={() => setViewerIndex(null)} onDelete={(id) => { onDeleteHistory(id); setViewerIndex(null); }} />}
+</div>
   );
 }
