@@ -26,7 +26,7 @@ const MENU_ITEMS = [
   { key: "keywords", label: "关键词管理", icon: "🏷️" },
 ];
 
-// Drag-to-reorder keyword group card with touch support
+// Drag-to-reorder keyword group card with touch + desktop support
 function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReorder }: {
   group: KeywordGroup;
   newKw: string;
@@ -37,13 +37,28 @@ function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReor
 }) {
   const [dragId, setDragId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
-  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [ghost, setGhost] = useState<{ x: number; y: number; name: string } | null>(null);
+  const [longPressed, setLongPressed] = useState(false);
   const touchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragRef = useRef<{ id: number; name: string } | null>(null);
 
+  function reorder(fromId: number, toId: number) {
+    if (fromId === toId) return;
+    const ids = group.keywords.map(k => k.id);
+    const fromIdx = ids.indexOf(fromId);
+    const toIdx = ids.indexOf(toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, fromId);
+    onReorder(ids);
+  }
+
+  /* ── Desktop HTML5 drag ── */
   function handleDragStart(e: React.DragEvent, id: number) {
     setDragId(id);
     e.dataTransfer.effectAllowed = "move";
+    // Firefox needs data to be set
+    e.dataTransfer.setData("text/plain", String(id));
   }
   function handleDragOver(e: React.DragEvent, id: number) {
     e.preventDefault();
@@ -52,63 +67,60 @@ function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReor
   }
   function handleDrop(e: React.DragEvent, id: number) {
     e.preventDefault();
-    if (dragId === null || dragId === id) { setDragId(null); setOverId(null); return; }
-    const ids = group.keywords.map(k => k.id);
-    const fromIdx = ids.indexOf(dragId);
-    const toIdx = ids.indexOf(id);
-    if (fromIdx < 0 || toIdx < 0) { setDragId(null); setOverId(null); return; }
-    ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, dragId);
-    onReorder(ids);
+    if (dragId !== null) reorder(dragId, id);
     setDragId(null);
     setOverId(null);
   }
   function handleDragEnd() { setDragId(null); setOverId(null); }
 
-  // Touch handlers for mobile long-press drag
-  function handleTouchStart(e: React.TouchEvent, id: number) {
+  /* ── Mobile long-press drag ── */
+  function handleTouchStart(e: React.TouchEvent, id: number, name: string) {
     const t = e.touches[0];
-    setDragStartPos({ x: t.clientX, y: t.clientY });
+    const startX = t.clientX;
+    const startY = t.clientY;
+    dragRef.current = { id, name };
+    setLongPressed(false);
     touchTimer.current = setTimeout(() => {
-      setIsDragging(true);
+      setLongPressed(true);
       setDragId(id);
-    }, 400);
+      setGhost({ x: startX, y: startY, name });
+    }, 350);
   }
   function handleTouchMove(e: React.TouchEvent) {
-    if (touchTimer.current && !isDragging) {
+    // If not yet long-pressed, cancel timer on scroll
+    if (touchTimer.current && !longPressed) {
       const t = e.touches[0];
-      if (dragStartPos && (Math.abs(t.clientX - dragStartPos.x) > 10 || Math.abs(t.clientY - dragStartPos.y) > 10)) {
+      if (ghost && (Math.abs(t.clientX - ghost.x) > 8 || Math.abs(t.clientY - ghost.y) > 8)) {
         clearTimeout(touchTimer.current);
         touchTimer.current = null;
       }
+      return;
     }
-    if (isDragging) {
+    if (longPressed) {
       e.preventDefault();
       const t = e.touches[0];
+      setGhost({ x: t.clientX, y: t.clientY, name: dragRef.current?.name || "" });
+      // Find chip under finger (our dragged chip has pointer-events:none so it won't block)
       const el = document.elementFromPoint(t.clientX, t.clientY);
-      const chip = el?.closest("[data-kid]");
+      const chip = el?.closest("[data-kid]") as HTMLElement | null;
       if (chip) {
         const kid = parseInt(chip.getAttribute("data-kid") || "0");
         if (kid && kid !== dragId) setOverId(kid);
+      } else {
+        setOverId(null);
       }
     }
   }
-  function handleTouchEnd(e: React.TouchEvent) {
+  function handleTouchEnd() {
     if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null; }
-    if (isDragging && dragId !== null && overId !== null && dragId !== overId) {
-      const ids = group.keywords.map(k => k.id);
-      const fromIdx = ids.indexOf(dragId);
-      const toIdx = ids.indexOf(overId);
-      if (fromIdx >= 0 && toIdx >= 0) {
-        ids.splice(fromIdx, 1);
-        ids.splice(toIdx, 0, dragId);
-        onReorder(ids);
-      }
+    if (longPressed && dragId !== null && overId !== null) {
+      reorder(dragId, overId);
     }
-    setIsDragging(false);
+    setLongPressed(false);
     setDragId(null);
     setOverId(null);
-    setDragStartPos(null);
+    setGhost(null);
+    dragRef.current = null;
   }
 
   return (
@@ -117,7 +129,13 @@ function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReor
         <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{group.name}</span>
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>{group.keywords.length} 个</span>
       </div>
-      <div className="flex flex-wrap gap-2 mb-3" onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      <div
+        className="flex flex-wrap gap-2 mb-3"
+        style={{ touchAction: "pan-y" }}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
         {group.keywords.map(k => {
           const isDrag = dragId === k.id;
           const isOver = overId === k.id;
@@ -125,25 +143,26 @@ function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReor
             <span
               key={k.id}
               data-kid={k.id}
-              draggable={isDragging ? false : true}
+              draggable={!longPressed}
               onDragStart={(e) => handleDragStart(e, k.id)}
               onDragOver={(e) => handleDragOver(e, k.id)}
               onDrop={(e) => handleDrop(e, k.id)}
               onDragEnd={handleDragEnd}
-              onTouchStart={(e) => handleTouchStart(e, k.id)}
+              onTouchStart={(e) => handleTouchStart(e, k.id, k.name)}
               className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs cursor-grab active:cursor-grabbing select-none transition-all"
               style={{
                 borderColor: isOver ? "var(--accent)" : "var(--border)",
                 background: isDrag ? "var(--accent-light)" : isOver ? "var(--accent-light)" : "var(--bg-tertiary)",
                 color: isDrag ? "var(--accent)" : "var(--text-secondary)",
-                opacity: isDrag ? 0.5 : 1,
-                transform: isOver ? "scale(1.05)" : "scale(1)",
+                opacity: isDrag ? 0.3 : 1,
+                transform: isOver ? "scale(1.08)" : "scale(1)",
                 touchAction: "none",
+                pointerEvents: isDrag ? "none" : "auto",
               }}
             >
               <span style={{ opacity: 0.4, fontSize: "10px" }}>⠿</span>
               {k.name}
-              <button onClick={(e) => { e.stopPropagation(); onDelete(k.id); }} className="opacity-50 hover:opacity-100" style={{ color: "var(--danger)" }}>×</button>
+              <button onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(k.id); }} className="opacity-50 hover:opacity-100" style={{ color: "var(--danger)" }}>×</button>
             </span>
           );
         })}
@@ -152,6 +171,23 @@ function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReor
         <input value={newKw} onChange={(e) => onNewKwChange(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAdd())} className="flex-1 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="添加关键词..." />
         <button onClick={onAdd} className="rounded-lg px-4 py-2 text-xs font-medium text-white" style={{ background: "var(--accent)" }}>添加</button>
       </div>
+      {/* Floating ghost chip that follows finger on mobile */}
+      {ghost && longPressed && (
+        <div
+          className="fixed z-50 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs pointer-events-none shadow-lg"
+          style={{
+            left: ghost.x,
+            top: ghost.y,
+            transform: "translate(-50%, -50%)",
+            borderColor: "var(--accent)",
+            background: "var(--accent-light)",
+            color: "var(--accent)",
+          }}
+        >
+          <span style={{ opacity: 0.4, fontSize: "10px" }}>⠿</span>
+          {ghost.name}
+        </div>
+      )}
     </div>
   );
 }
