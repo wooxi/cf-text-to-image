@@ -759,7 +759,7 @@ export default function HomePage() {
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{
-                            width: `${Math.max(4, Math.min(100, task.progress || (task.status === "failed" ? 100 : 8)))}%`,
+                            width: `${Math.max(4, Math.min(100, task.progress || ((task.status === "processing" || task.status === "pending") ? 8 : task.status === "failed" ? 100 : 8)))}%`,
                             background: task.status === "failed" ? "var(--danger)" : "var(--accent)",
                           }}
                         />
