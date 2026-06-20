@@ -304,46 +304,65 @@ export default function HomePage() {
       body.image = videoRefImages;
     }
 
-    setLoading(true);
-    setStatusText("正在提交任务...");
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        alert(data.error || "创建失败");
-        return;
+    // Add a temporary placeholder task card immediately
+    const tempId = Date.now();
+    const tempTask = {
+      id: tempId,
+      status: "processing",
+      type: mode,
+      keywordNames:
+        mode === "keywords"
+          ? semanticKeywords.join(", ")
+          : mode === "img2img"
+            ? semanticKeywords.join(", ") || "参考图编辑"
+            : "手动输入",
+      prompt: (body.prompt as string) || "",
+      imagePath: "",
+      videoPath: "",
+      posterPath: "",
+      progress: 5,
+      error: "",
+    };
+    setLiveTasks((prev) => [...prev, tempTask]);
+    startPolling();
+
+    // Fire POST request without blocking - runs in browser background
+    (async () => {
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          // Replace temp task with error
+          setLiveTasks((prev) => prev.map((t) => 
+            t.id === tempId 
+              ? { ...t, status: "failed", error: data.error || "创建失败" }
+              : t
+          ));
+        } else {
+          // Replace temp ID with real task ID - polling will pick up status
+          setLiveTasks((prev) => prev.map((t) =>
+            t.id === tempId
+              ? { ...t, id: data.data.taskId, status: "processing" }
+              : t
+          ));
+        }
+      } catch {
+        setLiveTasks((prev) => prev.map((t) =>
+          t.id === tempId
+            ? { ...t, status: "failed", error: "网络错误" }
+            : t
+        ));
       }
-      setLiveTasks((prev) => [
-        ...prev,
-        {
-          id: data.data.taskId,
-          status: "pending",
-          type: mode,
-          keywordNames:
-            mode === "keywords"
-              ? semanticKeywords.join(", ")
-              : mode === "img2img"
-                ? semanticKeywords.join(", ") || "参考图编辑"
-                : "手动输入",
-          prompt: (body.prompt as string) || "",
-          imagePath: "",
-          videoPath: "",
-          posterPath: "",
-          progress: 0,
-          error: "",
-        },
-      ]);
-      startPolling();
-    } catch {
-      alert("创建失败");
-    } finally {
-      setLoading(false);
-      setStatusText("");
-    }
+    })();
+
+    // Brief loading flash for UX feedback, then allow immediate next submit
+    setLoading(true);
+    setStatusText("已提交，可继续添加任务...");
+    setTimeout(() => { setLoading(false); setStatusText(""); }, 800);
   };
 
   const handleDeleteHistory = async (id: number) => {
