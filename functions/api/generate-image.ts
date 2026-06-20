@@ -25,6 +25,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const endpoint = normalizeEndpoint(rawEndpoint);
     const apiKey = await getApiKey(context.env, "image_api_key") || await getApiKey(context.env, "llm_api_key");
     const model = await getConfig(context.env, "image_model", "dall-e-3");
+    const imageProvider = await getConfig(context.env, "image_provider", "openai_image");
     const size = reqSize || "1024x1024";
 
     if (!apiKey) return Response.json({ success: false, error: "请先设置 IMAGE_API_KEY" }, { status: 400 });
@@ -32,13 +33,16 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const actualPrompt = (prompt || keywords || "").trim();
     if (!actualPrompt) return Response.json({ success: false, error: "缺少提示词" }, { status: 400 });
 
+    const suffix = ", natural body proportions, clearly defined limbs uncrossed, professional photography, highly detailed, masterpiece, sharp focus";
     const url = endpoint + "/images/generations";
-    const suffix = ", professional photography, highly detailed, masterpiece";
-    
+    const reqBody: Record<string, any> = imageProvider === "agnes_image"
+      ? { model, prompt: actualPrompt + suffix, size, extra_body: { response_format: "url" } }
+      : { model, prompt: actualPrompt + suffix, size };
+
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, prompt: actualPrompt + suffix, n: 1, size }),
+      body: JSON.stringify(reqBody),
     });
 
     if (!resp.ok) {
@@ -54,19 +58,23 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (!img) return Response.json({ success: false, error: "生图返回为空" }, { status: 500 });
 
     let bytes: ArrayBuffer;
-    if (img.b64_json) bytes = Uint8Array.from(atob(img.b64_json), c => c.charCodeAt(0)).buffer;
+    if (img.b64_json) bytes = Uint8Array.from(atob(img.b64_json), (char) => char.charCodeAt(0)).buffer;
     else if (img.url) bytes = await (await fetch(img.url)).arrayBuffer();
     else return Response.json({ success: false, error: "不支持的格式" }, { status: 500 });
 
     const filename = `${crypto.randomUUID()}.png`;
-    if (context.env.IMAGES_BUCKET) await context.env.IMAGES_BUCKET.put(`images/${filename}`, bytes, { httpMetadata: { contentType: "image/png" } });
-    const imagePath = context.env.IMAGES_BUCKET ? `/images/${filename}` : `data:image/png;base64,${btoa(String.fromCharCode(...new Uint8Array(bytes)))}`;
+    if (context.env.IMAGES_BUCKET) {
+      await context.env.IMAGES_BUCKET.put(`images/${filename}`, bytes, { httpMetadata: { contentType: "image/png" } });
+    }
+    const imagePath = context.env.IMAGES_BUCKET ? `/api/images?file=${filename}` : `data:image/png;base64,${btoa(String.fromCharCode(...new Uint8Array(bytes)))}`;
 
-    await context.env.DB.prepare("INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at) VALUES (?, ?, ?, 'image', ?)").bind(keywords || prompt, actualPrompt, imagePath, new Date().toISOString()).run();
+    await context.env.DB.prepare(
+      "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at) VALUES (?, ?, ?, 'image', ?)"
+    ).bind(keywords || prompt, actualPrompt, imagePath, new Date().toISOString()).run();
 
     return Response.json({ success: true, data: { imagePath, prompt: actualPrompt } });
-  } catch (e) {
-    if ((e as Error).message === "Unauthorized") return Response.json({ success: false, error: "未登录" }, { status: 401 });
+  } catch (error) {
+    if ((error as Error).message === "Unauthorized") return Response.json({ success: false, error: "未登录" }, { status: 401 });
     return Response.json({ success: false, error: "生成失败" }, { status: 500 });
   }
 }
