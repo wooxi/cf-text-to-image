@@ -169,8 +169,8 @@ export default function MobileHome(props: Props) {
         <textarea
           value={prompt}
           onChange={e => onPromptChange(e.target.value)}
-          rows={1}
-          className="w-full rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] resize-none focus:outline-none focus:border-[var(--accent)]"
+          rows={4}
+          className="w-full rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] resize-none focus:outline-none focus:border-[var(--accent)]" style={{ minHeight: "96px" }}
           placeholder={mode === "video" ? "描述动作、镜头..." : mode === "img2img" ? "要保留和修改的内容..." : "先选词，或直接写提示词..."}
         />
         <div className="flex items-center gap-1.5">
@@ -329,7 +329,7 @@ export default function MobileHome(props: Props) {
         className="shrink-0 px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]/95 backdrop-blur-xl flex items-center justify-between"
         style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}
       >
-        <h1 className="text-base font-bold">AI 文生图</h1>
+        <div className="flex items-center gap-2"><img src="/icon.svg" alt="Logo" className="h-7 w-7" /><span className="text-base font-bold">AI 文生图</span></div>
         <div className="flex gap-2 text-[10px] text-[var(--text-muted)]">
           <span>{records.length} 作品</span>
           <span>·</span>
