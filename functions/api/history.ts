@@ -1,13 +1,26 @@
 import { requireAuth } from "../auth";
 import type { Env } from "../db";
 
+function mapRecord(row: any) {
+  return {
+    id: row.id,
+    keywordNames: row.keyword_names || "",
+    prompt: row.prompt || "",
+    imagePath: row.image_path || "",
+    type: row.type || "image",
+    posterPath: row.poster_path || "",
+    createdAt: row.created_at || "",
+  };
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
     const result = await context.env.DB.prepare(
       "SELECT * FROM image_history ORDER BY created_at DESC LIMIT 200"
     ).all();
-    return Response.json({ success: true, data: result.results });
+    const data = result.results.map(mapRecord);
+    return Response.json({ success: true, data });
   } catch (e) {
     if ((e as Error).message === "Unauthorized") {
       return Response.json({ success: false, error: "未登录" }, { status: 401 });

@@ -8,6 +8,26 @@ function normalizeEndpoint(endpoint: string): string {
   return url;
 }
 
+
+function mapTask(row: any) {
+  return {
+    id: row.id,
+    status: row.status,
+    type: row.type || "image",
+    keywordNames: row.keyword_names || "",
+    prompt: row.prompt || "",
+    imagePath: row.image_path || "",
+    videoPath: row.video_path || "",
+    posterPath: row.poster_path || "",
+    size: row.size || "",
+    progress: row.progress || 0,
+    error: row.error || "",
+    referenceImage: row.reference_image || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
@@ -22,7 +42,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     }
     query += " ORDER BY created_at DESC LIMIT 50";
     const result = await context.env.DB.prepare(query).bind(...params).all();
-    return Response.json({ success: true, data: result.results });
+    return Response.json({ success: true, data: result.results.map(mapTask) });
   } catch (e) {
     if ((e as Error).message === "Unauthorized") return Response.json({ success: false, error: "未登录" }, { status: 401 });
     return Response.json({ success: false, error: "获取任务失败" }, { status: 500 });
