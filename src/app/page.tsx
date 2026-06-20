@@ -108,9 +108,7 @@ export default function HomePage() {
   const [showLogin, setShowLogin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const actionLock = useRef(false);
-  const taskQueue = useRef<{ body: Record<string, unknown>; tempId: number }[]>([]);
-  const isProcessing = useRef(false);
+  const textActionLock = useRef(false);
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -211,7 +209,7 @@ export default function HomePage() {
   const clearSelectedKeywords = () => setSelected([]);
 
   const handleGeneratePrompt = async () => {
-    if (actionLock.current) return;
+    if (textActionLock.current) return;
     const semanticKeywords = getSemanticKeywords(groups, selected);
     if (semanticKeywords.length === 0) {
       alert("请至少选择一个主体或画面关键词");
@@ -224,7 +222,7 @@ export default function HomePage() {
     setLoading(true);
     setStatusText("正在生成提示词...");
     setPrompt("");
-    actionLock.current = true;
+    textActionLock.current = true;
     try {
       // Include all selected keywords (semantic + output) so the LLM knows about ratio/resolution
       const structured = selected.map((name) => {
@@ -252,53 +250,10 @@ export default function HomePage() {
     } finally {
       setLoading(false);
       setStatusText("");
-      actionLock.current = false;
+      textActionLock.current = false;
     }
   };
 
-  // Sequential task processor - sends one task at a time to avoid CF timeout
-  const processQueue = useCallback(() => {
-    if (isProcessing.current) return;
-    const next = taskQueue.current.shift();
-    if (!next) return;
-    isProcessing.current = true;
-    const { body, tempId } = next;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (!data.success) {
-          setLiveTasks((prev) => prev.map((t) =>
-            t.id === tempId
-              ? { ...t, status: "failed", error: data.error || "创建失败" }
-              : t
-          ));
-        } else {
-          setLiveTasks((prev) => prev.map((t) =>
-            t.id === tempId
-              ? { ...t, id: data.data.taskId, status: "processing" }
-              : t
-          ));
-        }
-      } catch {
-        setLiveTasks((prev) => prev.map((t) =>
-          t.id === tempId
-            ? { ...t, status: "failed", error: "网络错误" }
-            : t
-        ));
-      } finally {
-        isProcessing.current = false;
-        if (taskQueue.current.length > 0) {
-          setTimeout(() => processQueue(), 100);
-        }
-      }
-    })();
-  }, []);
 
   const handleGenerate = async () => {
     if (!loggedIn) {
@@ -352,11 +307,10 @@ export default function HomePage() {
       body.image = videoRefImages;
     }
 
-    // Add a temporary placeholder task card immediately
-    const tempId = Date.now();
+    const tempId = -(Date.now() + Math.floor(Math.random() * 1000));
     const tempTask = {
       id: tempId,
-      status: "processing",
+      status: "pending",
       type: mode,
       keywordNames:
         mode === "keywords"
@@ -368,14 +322,14 @@ export default function HomePage() {
       imagePath: "",
       videoPath: "",
       posterPath: "",
-      progress: 5,
+      progress: 0,
       error: "",
     };
-    setLiveTasks((prev) => [...prev, tempTask]);
+    setLiveTasks((prev) => [tempTask, ...prev]);
     startPolling();
+    setStatusText("已提交，可继续添加任务...");
 
-    // Fire POST request without blocking - runs in browser background
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch("/api/tasks", {
           method: "POST",
@@ -384,33 +338,28 @@ export default function HomePage() {
         });
         const data = await res.json();
         if (!data.success) {
-          // Replace temp task with error
-          setLiveTasks((prev) => prev.map((t) => 
-            t.id === tempId 
-              ? { ...t, status: "failed", error: data.error || "创建失败" }
-              : t
-          ));
-        } else {
-          // Replace temp ID with real task ID - polling will pick up status
-          setLiveTasks((prev) => prev.map((t) =>
-            t.id === tempId
-              ? { ...t, id: data.data.taskId, status: "processing" }
-              : t
-          ));
+          throw new Error(data.error || "创建失败");
         }
-      } catch {
-        setLiveTasks((prev) => prev.map((t) =>
-          t.id === tempId
-            ? { ...t, status: "failed", error: "网络错误" }
-            : t
+
+        setLiveTasks((prev) => prev.map((task) =>
+          task.id === tempId
+            ? { ...task, id: data.data.taskId, status: "processing" }
+            : task
         ));
+        startPolling();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "创建失败";
+        setLiveTasks((prev) => prev.map((task) =>
+          task.id === tempId
+            ? { ...task, status: "failed", error: message }
+            : task
+        ));
+      } finally {
+        window.setTimeout(() => {
+          setStatusText((current) => current === "已提交，可继续添加任务..." ? "" : current);
+        }, 1200);
       }
     })();
-
-    // Brief loading flash for UX feedback, then allow immediate next submit
-    setLoading(true);
-    setStatusText("已提交，可继续添加任务...");
-    setTimeout(() => { setLoading(false); setStatusText(""); }, 800);
   };
 
   const handleDeleteHistory = async (id: number) => {
@@ -448,14 +397,14 @@ export default function HomePage() {
   };
 
   const handlePolish = async () => {
-    if (actionLock.current) return;
+    if (textActionLock.current) return;
     if (!prompt.trim()) {
       alert("请先输入内容");
       return;
     }
     setStatusText("AI 润色中...");
     setLoading(true);
-    actionLock.current = true;
+    textActionLock.current = true;
     try {
       const res = await fetch("/api/polish", {
         method: "POST",
@@ -470,7 +419,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
       setStatusText("");
-      actionLock.current = false;
+      textActionLock.current = false;
     }
   };
 
@@ -750,12 +699,12 @@ export default function HomePage() {
                     </button>
                     <button
                       onClick={handleGenerate}
-                      disabled={loading || !loggedIn || (!prompt.trim() && mode !== "img2img")}
+                      disabled={!loggedIn || (!prompt.trim() && mode !== "img2img")}
                       className="rounded-md bg-[var(--accent)] px-5 py-2 text-xs font-semibold text-white transition-base hover:bg-[var(--accent-hover)] hover:shadow-[0_0_12px_var(--accent-glow)] disabled:bg-[var(--bg-tertiary)] disabled:text-app-text3 disabled:shadow-none disabled:cursor-not-allowed"
                     >
                       {!loggedIn
                         ? "🔐 请先登录"
-                        : loading && statusText !== "AI 润色中..." && statusText !== "正在生成提示词..."
+                        : statusText === "已提交，可继续添加任务..."
                           ? statusText
                           : mode === "video"
                             ? "🎬 提交视频"
