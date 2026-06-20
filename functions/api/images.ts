@@ -9,12 +9,13 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       return new Response("Missing file param", { status: 400 });
     }
 
-    // Sanitize: only allow alphanumeric, dash, underscore, dot
-    if (!/^[a-zA-Z0-9_\-.]+$/.test(file)) {
+    // Sanitize: allow alphanumeric, dash, underscore, dot, and slash for subdirs
+    // Prevent path traversal (no .. allowed)
+    if (file.includes("..") || !/^[a-zA-Z0-9_\-./]+$/.test(file)) {
       return new Response("Invalid filename", { status: 400 });
     }
 
-    const r2Key = `images/${file}`;
+    const r2Key = "images/" + file;
     const object = await context.env.IMAGES_BUCKET.get(r2Key);
     if (!object) {
       return new Response("Image not found", { status: 404 });
