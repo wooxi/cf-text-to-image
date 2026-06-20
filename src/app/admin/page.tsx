@@ -4,20 +4,32 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 /* ─── types ─── */
-interface HistoryItem { id: number; keyword_names: string; prompt: string; image_path: string; type: string; poster_path: string; created_at: string; }
+interface HistoryItem { id: number; keywordNames: string; prompt: string; imagePath: string; type: string; posterPath: string; createdAt: string; }
 interface KeywordGroup { id: number; name: string; slug: string; keywords: { id: number; name: string }[]; }
 
 const MODEL_GROUPS = [
-  { key: "llm", title: "LLM 文字模型", desc: "提示词生成 / 润色", ep: "llm_endpoint", mk: "llm_model", ak: "llm_api_key" },
-  { key: "image", title: "图像模型", desc: "文生图 / 图生图", ep: "image_endpoint", mk: "image_model", ak: "image_api_key" },
-  { key: "video", title: "视频模型", desc: "文生视频 / 图生视频", ep: "video_endpoint", mk: "video_model", ak: "video_api_key" },
+  { key: "llm", title: "LLM 文字模型", desc: "提示词生成 / 润色", icon: "🧠", ep: "llm_endpoint", mk: "llm_model", ak: "llm_api_key" },
+  { key: "image", title: "图像模型", desc: "文生图 / 图生图", icon: "🎨", ep: "image_endpoint", mk: "image_model", ak: "image_api_key" },
+  { key: "video", title: "视频模型", desc: "文生视频 / 图生视频", icon: "🎬", ep: "video_endpoint", mk: "video_model", ak: "video_api_key" },
 ];
-const TABS = ["端点配置", "生成历史", "关键词管理"];
+
+const PROMPT_CONFIGS = [
+  { key: "prompt_system_image", label: "关键词生图提示词", desc: "根据关键词生成画面描述时使用的系统提示词", icon: "🎨" },
+  { key: "prompt_system_video", label: "视频生成提示词", desc: "生成视频画面描述时使用的系统提示词", icon: "🎬" },
+  { key: "prompt_system_polish", label: "润色提示词", desc: "润色用户输入的画面描述时使用的系统提示词", icon: "✨" },
+];
+
+const MENU_ITEMS = [
+  { key: "endpoints", label: "端点配置", icon: "⚙️" },
+  { key: "prompts", label: "提示词设定", icon: "📝" },
+  { key: "history", label: "生成历史", icon: "📋" },
+  { key: "keywords", label: "关键词管理", icon: "🏷️" },
+];
 
 export default function AdminPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [tab, setTab] = useState(0);
+  const [menuKey, setMenuKey] = useState("endpoints");
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
@@ -27,6 +39,10 @@ export default function AdminPage() {
   const [fetching, setFetching] = useState<string | null>(null);
   const [modelLists, setModelLists] = useState<Record<string, string[]>>({});
   const [dropdown, setDropdown] = useState<string | null>(null);
+
+  /* ─── prompt state ─── */
+  const [promptTexts, setPromptTexts] = useState<Record<string, string>>({});
+  const [savingPrompt, setSavingPrompt] = useState(false);
 
   /* ─── history state ─── */
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -42,11 +58,21 @@ export default function AdminPage() {
   async function checkAuth() {
     try {
       const r = await fetch("/api/auth/me");
-      if (r.ok) { setUser((await r.json()).data); loadConfig(); } else setLoading(false);
+      if (r.ok) { const d = await r.json(); setUser(d.data); loadConfig(); } else setLoading(false);
     } catch { setLoading(false); }
   }
   async function loadConfig() {
-    try { const r = await fetch("/api/config"); if (r.ok) setConfig((await r.json()).data || {}); } catch {}
+    try {
+      const r = await fetch("/api/config");
+      if (r.ok) {
+        const d = (await r.json()).data || {};
+        setConfig(d);
+        // Initialize prompt texts from config
+        const pt: Record<string, string> = {};
+        for (const p of PROMPT_CONFIGS) pt[p.key] = d[p.key] || "";
+        setPromptTexts(pt);
+      }
+    } catch {}
     setLoading(false);
   }
 
@@ -70,6 +96,15 @@ export default function AdminPage() {
       if (r.ok) { setMsg(gk + " 保存成功"); loadConfig(); } else setMsg((await r.json()).error || "保存失败");
     } catch { setMsg("网络错误"); }
     setSaving(null);
+  }
+
+  async function savePrompts() {
+    setSavingPrompt(true); setMsg("");
+    try {
+      const r = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(promptTexts) });
+      if (r.ok) { setMsg("提示词设定保存成功"); loadConfig(); } else setMsg((await r.json()).error || "保存失败");
+    } catch { setMsg("网络错误"); }
+    setSavingPrompt(false);
   }
 
   async function fetchModels(gk: string, epKey: string) {
@@ -96,7 +131,10 @@ export default function AdminPage() {
     setHistoryLoading(true);
     try {
       const r = await fetch("/api/history");
-      if (r.ok) setHistory((await r.json()).data || []);
+      if (r.ok) {
+        const d = (await r.json()).data || [];
+        setHistory(d);
+      }
     } catch {}
     setHistoryLoading(false);
   }
@@ -119,28 +157,18 @@ export default function AdminPage() {
     const name = (newKw[groupId] || "").trim();
     if (!name) return;
     try {
-      const r = await fetch("/api/keywords", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", group_id: groupId, name }) });
-      if (r.ok) { setMsg("添加成功"); setNewKw(p => ({ ...p, [groupId]: "" })); loadKeywords(); }
-      else setMsg((await r.json()).error || "添加失败");
-    } catch { setMsg("网络错误"); }
+      const r = await fetch("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ groupId, name }) });
+      if (r.ok) { setNewKw(p => ({ ...p, [groupId]: "" })); loadKeywords(); }
+    } catch {}
   }
   async function deleteKeyword(id: number) {
-    try {
-      const r = await fetch("/api/keywords", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", id }) });
-      if (r.ok) { loadKeywords(); } else setMsg((await r.json()).error || "删除失败");
-    } catch { setMsg("网络错误"); }
+    try { await fetch(`/api/keywords?id=${id}`, { method: "DELETE" }); loadKeywords(); } catch {}
   }
 
-  /* ─── tab switching loads data ─── */
-  useEffect(() => {
-    if (!user) return;
-    if (tab === 1) loadHistory();
-    if (tab === 2) loadKeywords();
-  }, [tab, user]);
+  /* ─── loading ─── */
+  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} /></div>;
 
-  /* ─── render ─── */
-  if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} /></div>;
-
+  /* ─── login form ─── */
   if (!user) return (
     <div className="max-w-md mx-auto px-4 py-16">
       <h1 className="text-2xl font-bold mb-8 text-center" style={{ color: "var(--text-primary)" }}>后台管理</h1>
@@ -154,122 +182,178 @@ export default function AdminPage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div><h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>后台管理</h1><p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>已登录：{user.username}</p></div>
-        <button onClick={() => router.push("/")} className="rounded-full border px-4 py-2 text-sm font-medium" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-secondary)" }}>← 返回创作台</button>
-      </div>
+    <div className="min-h-screen flex" style={{ background: "var(--bg-primary)" }}>
+      {/* ─── Left Sidebar ─── */}
+      <aside className="w-64 shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+        <div className="p-5 border-b" style={{ borderColor: "var(--border)" }}>
+          <h1 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>⚙️ 后台管理</h1>
+          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{user.username}</p>
+        </div>
+        <nav className="flex-1 p-3 space-y-1">
+          {MENU_ITEMS.map(item => (
+            <button key={item.key} onClick={() => {
+              setMenuKey(item.key);
+              setMsg("");
+              if (item.key === "history") loadHistory();
+              if (item.key === "keywords") loadKeywords();
+            }} className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all"
+              style={{
+                background: menuKey === item.key ? "var(--accent-light)" : "transparent",
+                color: menuKey === item.key ? "var(--accent)" : "var(--text-secondary)",
+                borderLeft: menuKey === item.key ? "3px solid var(--accent)" : "3px solid transparent",
+              }}>
+              <span className="text-base">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="p-3 border-t" style={{ borderColor: "var(--border)" }}>
+          <button onClick={() => router.push("/")} className="w-full rounded-lg border px-3 py-2 text-xs font-medium" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-tertiary)" }}>← 返回创作台</button>
+        </div>
+      </aside>
 
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-full border p-1 mb-6" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-        {TABS.map((t, i) => (
-          <button key={t} onClick={() => setTab(i)} className="rounded-full px-5 py-2 text-sm font-medium transition-all"
-            style={{ background: tab === i ? "var(--accent)" : "transparent", color: tab === i ? "#fff" : "var(--text-secondary)" }}>
-            {t}
-          </button>
-        ))}
-      </div>
+      {/* ─── Right Content ─── */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto p-8">
+          {msg && <div className="mb-4 rounded-lg px-4 py-3 text-sm" style={{ background: msg.includes("成功") ? "var(--success-bg)" : "var(--accent-light)", color: msg.includes("成功") ? "var(--success)" : "var(--accent)" }}>{msg}</div>}
 
-      {/* Tab 0: 端点配置 */}
-      {tab === 0 && (
-        <div className="grid gap-6">
-          {MODEL_GROUPS.map(g => {
-            const hasKey = (config[g.ak] || "").includes("已设置");
-            return (
-              <form key={g.key} onSubmit={(e) => saveGroup(g.key, e)} className="rounded-2xl border p-6" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-                <div className="flex items-center gap-3 mb-5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold" style={{ background: "var(--accent-light)", color: "var(--accent)" }}>{g.key === "llm" ? "T" : g.key === "image" ? "I" : "V"}</span>
-                  <div><h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>{g.title}</h2><p className="text-xs" style={{ color: "var(--text-muted)" }}>{g.desc}</p></div>
-                  {hasKey && <span className="ml-auto text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)" }}>✓ Key 已设置</span>}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>端点地址</label><input name={g.ep} type="text" defaultValue={config[g.ep] || ""} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="https://api.openai.com/v1" /></div>
-                  <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>API Key</label><input name={g.ak} type="password" className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder={hasKey ? "••••••••（已设置）" : "sk-..."} /></div>
-                  <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>模型名称</label>
-                    <div className="flex gap-1.5">
-                      <input name={g.mk} type="text" defaultValue={config[g.mk] || ""} className="flex-1 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="gpt-4o" />
-                      <button type="button" onClick={() => fetchModels(g.key, g.ep)} disabled={fetching === g.key} className="shrink-0 rounded-lg border px-2.5 py-2 text-xs font-medium disabled:opacity-50" style={{ borderColor: "var(--accent)", color: "var(--accent)", background: "var(--accent-light)" }}>{fetching === g.key ? "..." : "获取"}</button>
-                    </div>
-                    {dropdown === g.key && modelLists[g.key]?.length > 0 && (
-                      <div className="mt-1.5 rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)" }}>
-                        <div className="max-h-40 overflow-y-auto">{modelLists[g.key].map(m => <button key={m} type="button" onClick={() => pickModel(g.mk, m)} className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--accent-light)] block" style={{ color: "var(--text-secondary)" }}>{m}</button>)}</div>
-                        <div className="border-t px-2 py-1" style={{ borderColor: "var(--border)" }}><button type="button" onClick={() => setDropdown(null)} className="text-[10px]" style={{ color: "var(--text-muted)" }}>关闭</button></div>
+          {/* ── 端点配置 ── */}
+          {menuKey === "endpoints" && (
+            <div>
+              <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>端点配置</h2>
+              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>配置 LLM、图像、视频三类模型的端点和密钥</p>
+              <div className="space-y-5">
+                {MODEL_GROUPS.map(g => {
+                  const hasKey = (config[g.ak] || "").includes("已设置");
+                  return (
+                    <form key={g.key} onSubmit={(e) => saveGroup(g.key, e)} className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg text-lg" style={{ background: "var(--accent-light)" }}>{g.icon}</span>
+                        <div>
+                          <div className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>{g.title}{hasKey && <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)" }}>✓ Key 已设置</span>}</div>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.desc}</div>
+                        </div>
                       </div>
-                    )}
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>端点地址</label><input name={g.ep} type="text" defaultValue={config[g.ep] || ""} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="https://api.openai.com/v1" /></div>
+                        <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>API Key</label><input name={g.ak} type="password" className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder={hasKey ? "••••••••（已设置）" : "sk-..."} /></div>
+                        <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>模型名称</label>
+                          <div className="flex gap-1.5">
+                            <input name={g.mk} type="text" defaultValue={config[g.mk] || ""} className="flex-1 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="gpt-4o" />
+                            <button type="button" onClick={() => fetchModels(g.key, g.ep)} disabled={fetching === g.key} className="shrink-0 rounded-lg border px-2.5 py-2 text-xs font-medium disabled:opacity-50" style={{ borderColor: "var(--accent)", color: "var(--accent)", background: "var(--accent-light)" }}>{fetching === g.key ? "..." : "获取"}</button>
+                          </div>
+                          {dropdown === g.key && modelLists[g.key]?.length > 0 && (
+                            <div className="mt-1.5 rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)" }}>
+                              <div className="max-h-40 overflow-y-auto">{modelLists[g.key].map(m => <button key={m} type="button" onClick={() => pickModel(g.mk, m)} className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--accent-light)] block" style={{ color: "var(--text-secondary)" }}>{m}</button>)}</div>
+                              <div className="border-t px-2 py-1" style={{ borderColor: "var(--border)" }}><button type="button" onClick={() => setDropdown(null)} className="text-[10px]" style={{ color: "var(--text-muted)" }}>关闭</button></div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="mt-4"><button type="submit" disabled={saving === g.key} className="rounded-lg px-5 py-2 text-xs font-medium text-white transition-all disabled:opacity-50" style={{ background: "var(--accent)" }}>{saving === g.key ? "保存中..." : "保存"}</button></div>
+                    </form>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── 提示词设定 ── */}
+          {menuKey === "prompts" && (
+            <div>
+              <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>提示词设定</h2>
+              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>配置不同场景下 AI 生成/润色提示词时使用的系统提示词。留空则使用默认值。</p>
+              <div className="space-y-5">
+                {PROMPT_CONFIGS.map(p => (
+                  <div key={p.key} className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-lg">{p.icon}</span>
+                      <div>
+                        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{p.label}</div>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>{p.desc}</div>
+                      </div>
+                    </div>
+                    <textarea
+                      value={promptTexts[p.key] || ""}
+                      onChange={(e) => setPromptTexts(prev => ({ ...prev, [p.key]: e.target.value }))}
+                      rows={8}
+                      className="w-full rounded-lg border px-3 py-2.5 text-sm leading-relaxed font-mono resize-y"
+                      style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }}
+                      placeholder="留空使用默认提示词..."
+                    />
+                    <div className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>{(promptTexts[p.key] || "").length} 字符</div>
                   </div>
-                </div>
-                <div className="mt-4"><button type="submit" disabled={saving === g.key} className="rounded-lg px-5 py-2 text-xs font-medium text-white transition-all disabled:opacity-50" style={{ background: "var(--accent)" }}>{saving === g.key ? "保存中..." : "保存"}</button></div>
-              </form>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Tab 1: 生成历史 */}
-      {tab === 1 && (
-        <div className="rounded-2xl border p-6" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>生成历史</h2>
-            <button onClick={loadHistory} className="text-xs rounded-lg border px-3 py-1.5" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>刷新</button>
-          </div>
-          {historyLoading ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>加载中...</div> :
-           history.length === 0 ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>暂无生成记录</div> :
-           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr style={{ color: "var(--text-muted)" }}><th className="text-left pb-2 font-medium">ID</th><th className="text-left pb-2 font-medium">类型</th><th className="text-left pb-2 font-medium">关键词</th><th className="text-left pb-2 font-medium">提示词</th><th className="text-left pb-2 font-medium">预览</th><th className="text-left pb-2 font-medium">时间</th><th className="text-right pb-2 font-medium">操作</th></tr></thead>
-              <tbody>
-                {history.map(h => (
-                  <tr key={h.id} className="border-t" style={{ borderColor: "var(--border)" }}>
-                    <td className="py-2 text-xs" style={{ color: "var(--text-muted)" }}>{h.id}</td>
-                    <td className="py-2 text-xs">{h.type === "video" ? "🎬" : "🖼️"}</td>
-                    <td className="py-2 text-xs max-w-[120px] truncate" style={{ color: "var(--text-secondary)" }}>{h.keyword_names}</td>
-                    <td className="py-2 text-xs max-w-[200px] truncate" style={{ color: "var(--text-secondary)" }}>{h.prompt}</td>
-                    <td className="py-2">{h.image_path ? <a href={h.image_path} target="_blank" className="text-xs underline" style={{ color: "var(--accent)" }}>查看</a> : <span className="text-xs" style={{ color: "var(--text-muted)" }}>-</span>}</td>
-                    <td className="py-2 text-xs" style={{ color: "var(--text-muted)" }}>{h.created_at?.substring(0, 16)}</td>
-                    <td className="py-2 text-right"><button onClick={() => deleteHistory(h.id)} className="text-xs hover:underline" style={{ color: "var(--danger)" }}>删除</button></td>
-                  </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>}
-        </div>
-      )}
-
-      {/* Tab 2: 关键词管理 */}
-      {tab === 2 && (
-        <div className="rounded-2xl border p-6" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>关键词管理</h2>
-            <button onClick={loadKeywords} className="text-xs rounded-lg border px-3 py-1.5" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>刷新</button>
-          </div>
-          {kwLoading ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>加载中...</div> :
-           <div className="grid gap-4 sm:grid-cols-2">
-            {kwGroups.map(g => (
-              <div key={g.id} className="rounded-lg border p-4" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)" }}>
-                <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>{g.name}</h3>
-                <p className="text-[10px] mb-3" style={{ color: "var(--text-muted)" }}>{g.keywords?.length || 0} 个关键词</p>
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {g.keywords?.map(k => (
-                    <span key={k.id} className="group flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-                      {k.name}
-                      <button onClick={() => deleteKeyword(k.id)} className="opacity-0 group-hover:opacity-100 text-[10px] ml-0.5" style={{ color: "var(--danger)" }}>×</button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-1.5">
-                  <input value={newKw[g.id] || ""} onChange={e => setNewKw(p => ({ ...p, [g.id]: e.target.value }))} className="flex-1 rounded-md border px-2 py-1 text-xs" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)", color: "var(--text-primary)" }} placeholder="新关键词" onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addKeyword(g.id))} />
-                  <button onClick={() => addKeyword(g.id)} className="rounded-md border px-3 py-1 text-xs font-medium" style={{ borderColor: "var(--accent)", color: "var(--accent)", background: "var(--accent-light)" }}>+</button>
+                <div className="flex gap-3">
+                  <button onClick={savePrompts} disabled={savingPrompt} className="rounded-lg px-6 py-2.5 text-sm font-medium text-white transition-all disabled:opacity-50" style={{ background: "var(--accent)" }}>{savingPrompt ? "保存中..." : "保存全部"}</button>
+                  <button onClick={() => { setPromptTexts({}); setMsg("已清空编辑区（不影响已保存值）"); }} className="rounded-lg border px-4 py-2.5 text-sm font-medium" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-tertiary)" }}>重置编辑区</button>
                 </div>
               </div>
-            ))}
-          </div>}
-        </div>
-      )}
+            </div>
+          )}
 
-      {msg && (
-        <div className="mt-4 text-sm text-center p-3 rounded-lg" style={{ background: msg.includes("成功") || msg.includes("找到") ? "var(--success-bg)" : "var(--danger-bg)", color: msg.includes("成功") || msg.includes("找到") ? "var(--success)" : "var(--danger)" }}>{msg}</div>
-      )}
+          {/* ── 生成历史 ── */}
+          {menuKey === "history" && (
+            <div>
+              <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>生成历史</h2>
+              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>查看所有生成记录</p>
+              <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>{history.length} 条记录</span>
+                  <button onClick={loadHistory} className="text-xs rounded-lg border px-3 py-1.5" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>刷新</button>
+                </div>
+                {historyLoading ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>加载中...</div> :
+                 history.length === 0 ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>暂无生成记录</div> :
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-sm">
+                     <thead><tr style={{ color: "var(--text-muted)" }}>
+                       <th className="text-left py-2 px-2">类型</th><th className="text-left py-2 px-2">提示词</th><th className="text-left py-2 px-2">图片</th><th className="text-left py-2 px-2">时间</th><th className="py-2 px-2"></th>
+                     </tr></thead>
+                     <tbody>{history.map(h => (
+                       <tr key={h.id} className="border-t" style={{ borderColor: "var(--border)" }}>
+                         <td className="py-2 px-2"><span className="text-xs rounded px-1.5 py-0.5" style={{ background: h.type === "video" ? "var(--accent-light)" : "var(--success-bg)", color: h.type === "video" ? "var(--accent)" : "var(--success)" }}>{h.type}</span></td>
+                         <td className="py-2 px-2 max-w-xs truncate" style={{ color: "var(--text-secondary)" }}>{h.prompt || h.keywordNames}</td>
+                         <td className="py-2 px-2">{h.imagePath ? <a href={h.imagePath} target="_blank" className="text-xs" style={{ color: "var(--accent)" }}>查看</a> : "—"}</td>
+                         <td className="py-2 px-2 text-xs" style={{ color: "var(--text-muted)" }}>{new Date(h.createdAt).toLocaleString("zh-CN")}</td>
+                         <td className="py-2 px-2"><button onClick={() => deleteHistory(h.id)} className="text-xs" style={{ color: "var(--danger)" }}>删除</button></td>
+                       </tr>
+                     ))}</tbody>
+                   </table>
+                 </div>
+                }
+              </div>
+            </div>
+          )}
+
+          {/* ── 关键词管理 ── */}
+          {menuKey === "keywords" && (
+            <div>
+              <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>关键词管理</h2>
+              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>管理关键词分组和词条</p>
+              <div className="space-y-4">
+                {kwLoading ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>加载中...</div> :
+                 kwGroups.map(g => (
+                  <div key={g.id} className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{g.name}</span>
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>{g.keywords.length} 个</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {g.keywords.map(k => (
+                        <span key={k.id} className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>{k.name}<button onClick={() => deleteKeyword(k.id)} className="opacity-50 hover:opacity-100" style={{ color: "var(--danger)" }}>×</button></span>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={newKw[g.id] || ""} onChange={(e) => setNewKw(p => ({ ...p, [g.id]: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKeyword(g.id))} className="flex-1 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="添加关键词..." />
+                      <button onClick={() => addKeyword(g.id)} className="rounded-lg px-4 py-2 text-xs font-medium text-white" style={{ background: "var(--accent)" }}>添加</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

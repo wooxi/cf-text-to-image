@@ -8,8 +8,21 @@ function normalizeEndpoint(endpoint: string): string {
   return url;
 }
 
-const IMAGE_SYSTEM_PROMPT = "你是顶尖时尚摄影师。根据关键词写一段丰富的中文画面描述：从全景到特写，含场景、人物、服装、神态、光影。禁止裸露/透视/暗示性内容。";
-const VIDEO_SYSTEM_PROMPT = "你是顶尖视频导演。润色为更丰富的视频画面描述，补充镜头运动、动作节奏。纯中文，一段话写完。";
+const DEFAULT_IMAGE_PROMPT = `你是一位顶尖的创意导演和商业摄影师，擅长从关键词卡片生成有氛围感、有随机惊喜的画面描述。你的任务是根据用户选择的分类关键词，生成一段可直接用于生图的中文提示词。
+
+核心规则：
+1. 纯中文输出：只输出一段通顺完整的中文画面描述。不加英文，不加"画面描述："等标题，不加任何解释、前缀。直接从描述内容开始写。
+2. 包含画面主体、环境/背景、光线、风格、构图、氛围等要素。
+3. 长度控制在 80-300 字之间，自然流畅，不要机械分段。
+4. 安全准则：用衣物配饰自然覆盖身体，用光影和构图引导视线，避免写裸体/透视/暗示性内容。`;
+
+const DEFAULT_VIDEO_PROMPT = `你是一位顶尖的视频导演，擅长将关键词转化为生动的视频画面描述。
+
+核心规则：
+1. 纯中文输出：只输出一段通顺完整的中文画面描述。
+2. 补充镜头运动（推拉摇移）、动作节奏、光影变化等动态要素。
+3. 长度控制在 80-300 字之间，一段话写完，不要分段。
+4. 描述要有时间流动感，体现视频的动态特征。`;
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
@@ -27,13 +40,14 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
     const keywordNames = Array.isArray(keywords) ? keywords.map((k: any) => k.name || k).join(", ") : "";
     const isVideo = mode === "video";
-    const systemPrompt = isVideo ? VIDEO_SYSTEM_PROMPT : IMAGE_SYSTEM_PROMPT;
+    const defaultPrompt = isVideo ? DEFAULT_VIDEO_PROMPT : DEFAULT_IMAGE_PROMPT;
+    const systemPrompt = await getConfig(context.env, isVideo ? "prompt_system_video" : "prompt_system_image", defaultPrompt);
 
     const url = endpoint + "/chat/completions";
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请根据以下关键词生成画面描述：${keywordNames}` }], temperature: 0.9, max_tokens: 4096 }),
+      body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请根据以下关键词生成画面描述：${keywordNames}` }], temperature: 0.9, max_tokens: 4096, thinking: { type: "disabled" } }),
     });
 
     if (!response.ok) {

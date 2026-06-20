@@ -8,7 +8,7 @@ function normalizeEndpoint(endpoint: string): string {
   return url;
 }
 
-const SYSTEM_PROMPT = "你是专业的画面描述优化师。润色中文画面描述：更丰富、更有氛围感、更文学化。纯中文输出，一段话写完。";
+const DEFAULT_POLISH_PROMPT = `你是一位专业的画面描述优化师。润色中文画面描述：更丰富、更有氛围感、更文学化。纯中文输出，一段话写完，不要机械分段。保持原意，增强画面感和细节描写。`;
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
@@ -23,11 +23,13 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
     if (!apiKey) return Response.json({ success: false, error: "请先设置 LLM_API_KEY" }, { status: 400 });
 
+    const systemPrompt = await getConfig(context.env, "prompt_system_polish", DEFAULT_POLISH_PROMPT);
+
     const url = endpoint + "/chat/completions";
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: `请润色：${text}` }], temperature: 0.9, max_tokens: 4096 }),
+      body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请润色：${text}` }], temperature: 0.9, max_tokens: 4096, thinking: { type: "disabled" } }),
     });
 
     if (!response.ok) return Response.json({ success: false, error: `润色失败 (${response.status})` }, { status: 502 });
