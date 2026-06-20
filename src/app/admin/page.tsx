@@ -319,7 +319,7 @@ export default function AdminPage() {
       return { ...g, keywords: reordered };
     }));
     try {
-      await fetch("/api/keywords/reorder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ groupId, orderedIds }) });
+      await fetch("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reorder", groupId, orderedIds }) });
     } catch {}
   }
 

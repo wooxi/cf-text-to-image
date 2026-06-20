@@ -33,11 +33,21 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
-    const body = await context.request.json() as { groupId?: number; name?: string; slug?: string; keywords?: string[] };
+    const body = await context.request.json() as { action?: string; groupId?: number; name?: string; slug?: string; keywords?: string[]; orderedIds?: number[] };
     
     // Add single keyword to existing group
     if (body.groupId && body.name) {
       const name = body.name.trim();
+    // Reorder keywords within a group
+    if (body.action === "reorder" && body.groupId && Array.isArray(body.orderedIds)) {
+      for (let i = 0; i < body.orderedIds.length; i++) {
+        await context.env.DB.prepare(
+          "UPDATE keywords SET sort_order = ? WHERE id = ? AND group_id = ?"
+        ).bind(i, body.orderedIds[i], body.groupId).run();
+      }
+      return Response.json({ success: true });
+    }
+
       if (!name) return Response.json({ success: false, error: "关键词不能为空" }, { status: 400 });
       await context.env.DB.prepare(
         "INSERT INTO keywords (group_id, name, created_at) VALUES (?, ?, ?)"
