@@ -105,43 +105,73 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   let actualPrompt = body.prompt || body.keywords || "";
   if (!actualPrompt.trim()) throw new Error("缺少提示词");
 
-  // For img2img, add prefix like original
-  if (isImg2img) {
-    actualPrompt = "Using the reference image as the base, make the following edits while preserving the subject's identity, pose, and composition: " + actualPrompt;
-  }
-  actualPrompt += ", professional photography, highly detailed, masterpiece, sharp focus";
+  const qualitySuffix = ", natural body proportions, clearly defined limbs uncrossed, professional photography, highly detailed, masterpiece, sharp focus";
+  const img2imgPrefix = isImg2img
+    ? "Using the reference image as the base, make the following edits while preserving the subject's identity, pose, and composition: "
+    : "";
+  const finalPrompt = img2imgPrefix + actualPrompt + qualitySuffix;
 
-  // Build request - always use /images/generations with extra_body.image for img2img
-  // This works with both OpenAI-compatible and Agnes APIs
-  const url = endpoint + "/images/generations";
-  
-  const reqBody: Record<string, any> = { model, prompt: actualPrompt, n: 1, size };
-  
-  // Add image for img2img via extra_body (compatible with agnes-image and gpt-image models)
+  const useEditsEndpoint = isImg2img && imageProvider !== "agnes_image";
+  const imgUrl = endpoint + (useEditsEndpoint ? "/images/edits" : "/images/generations");
+
+  const reqBody: Record<string, any> = imageProvider === "agnes_image"
+    ? { model, prompt: finalPrompt, size, extra_body: { response_format: "url" } }
+    : { model, prompt: finalPrompt, n: 1, size };
+
   if (isImg2img && body.image) {
-    const images = Array.isArray(body.image) ? body.image : [body.image];
-    reqBody.extra_body = { 
-      response_format: "url",
-      image: images.length === 1 ? images[0] : images 
-    };
+    let images = Array.isArray(body.image) ? body.image : [body.image];
+
+    // Upload data URIs to R2 to get public URLs (avoids timeout with large base64 payloads)
+    if (env.IMAGES_BUCKET) {
+      images = await Promise.all(images.map(async (img: string) => {
+        if (img.startsWith("data:image/")) {
+          const match = img.match(/^data:(image\/[a-z]+);base64,(.+)$/i);
+          if (match) {
+            const contentType = match[1];
+            const ext = contentType.split("/")[1] || "png";
+            const filename = "refs/" + crypto.randomUUID() + "." + ext;
+            const bytes = Uint8Array.from(atob(match[2]), c => c.charCodeAt(0)).buffer;
+            await env.IMAGES_BUCKET.put("images/" + filename, bytes, { httpMetadata: { contentType } });
+            return "/api/images?file=" + filename;
+          }
+        }
+        return img;
+      }));
+    }
+
+    // Convert relative URLs to absolute for the API to fetch
+    const origin = "https://cf-text-to-image-ark.pages.dev";
+    images = images.map((img: string) => img.startsWith("/") ? origin + img : img);
+
+    if (imageProvider === "agnes_image") {
+      if (!reqBody.extra_body) reqBody.extra_body = { response_format: "url" };
+      reqBody.extra_body.image = images.length === 1 ? images[0] : images;
+    } else {
+      reqBody.image = images.length === 1 ? images[0] : images;
+    }
   }
 
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(reqBody),
-  });
+  let resp: Response;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+    resp = await fetch(imgUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+      body: JSON.stringify(reqBody),
+    });
+    if (resp.status !== 429) break;
+  }
 
-  if (!resp.ok) {
-    const txt = await resp.text();
+  if (!resp!.ok) {
+    const txt = await resp!.text();
     let err = txt;
     try { err = JSON.parse(txt).error?.message || txt; } catch {}
-    throw new Error("生图失败(" + resp.status + "): " + err.substring(0, 200));
+    throw new Error("生图失败(" + resp!.status + "): " + err.substring(0, 200));
   }
 
-  const data = await resp.json() as any;
+  const data = await resp!.json() as any;
   if (data.error) throw new Error("生图失败: " + (data.error.message || "未知错误"));
-  
+
   const img = data.data?.[0];
   if (!img) throw new Error("生图返回为空");
 
@@ -150,14 +180,14 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   else if (img.url) bytes = await (await fetch(img.url)).arrayBuffer();
   else throw new Error("不支持的格式");
 
-  const filename = `${crypto.randomUUID()}.png`;
-  const r2Key = `images/${filename}`;
+  const filename = crypto.randomUUID() + ".png";
+  const r2Key = "images/" + filename;
   if (env.IMAGES_BUCKET) {
     await env.IMAGES_BUCKET.put(r2Key, bytes, { httpMetadata: { contentType: "image/png" } });
   }
 
-  const imagePath = env.IMAGES_BUCKET ? `/api/images?file=${filename}` :
-    `data:image/png;base64,${btoa(String.fromCharCode(...new Uint8Array(bytes)))}`;
+  const imagePath = env.IMAGES_BUCKET ? "/api/images?file=" + filename :
+    "data:image/png;base64," + btoa(String.fromCharCode(...new Uint8Array(bytes)));
 
   await env.DB.prepare(
     "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at) VALUES (?, ?, ?, 'image', ?)"
