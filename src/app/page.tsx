@@ -253,7 +253,6 @@ export default function HomePage() {
   };
 
   const handleGenerate = async () => {
-    if (actionLock.current) return;
     if (!loggedIn) {
       setShowLogin(true);
       return;
@@ -306,8 +305,7 @@ export default function HomePage() {
     }
 
     setLoading(true);
-    setStatusText("正在创建任务...");
-    actionLock.current = true;
+    setStatusText("正在提交任务...");
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -345,7 +343,6 @@ export default function HomePage() {
     } finally {
       setLoading(false);
       setStatusText("");
-      actionLock.current = false;
     }
   };
 

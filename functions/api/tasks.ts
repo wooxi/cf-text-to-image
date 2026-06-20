@@ -37,9 +37,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const type = body.type || "image";
     const isVideo = type === "video";
 
-    // Create task with processing status
+    // Create task with pending status
     await context.env.DB.prepare(
-      "INSERT INTO tasks (status, type, keyword_names, prompt, size, reference_image, progress, created_at, updated_at) VALUES ('processing', ?, ?, ?, ?, ?, 0, ?, ?)"
+      "INSERT INTO tasks (status, type, keyword_names, prompt, size, reference_image, progress, created_at, updated_at) VALUES ('pending', ?, ?, ?, ?, ?, 0, ?, ?)"
     ).bind(
       type, body.keywords || "", body.prompt || "", body.size || "1024x1024",
       Array.isArray(body.image) ? body.image.join(",") : (body.image || ""),
@@ -49,19 +49,28 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const lastRow = await context.env.DB.prepare("SELECT last_insert_rowid() as id").first();
     const taskId = (lastRow as any)?.id as number;
 
-    // Process synchronously - CF Pages allows up to 30s
-    try {
-      if (isVideo) {
-        await processVideo(context.env, taskId, body);
-      } else {
-        await processImage(context.env, taskId, body);
-      }
-    } catch (procErr) {
-      await context.env.DB.prepare(
-        "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
-      ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
-    }
+    // Fire-and-forget: start processing without awaiting
+    // This lets the POST return immediately while processing continues
+    const env = context.env;
+    const processPromise = (async () => {
+      try {
+        await env.DB.prepare(
+          "UPDATE tasks SET status = 'processing', updated_at = ? WHERE id = ?"
+        ).bind(new Date().toISOString(), taskId).run();
 
+        if (isVideo) {
+          await processVideo(env, taskId, body);
+        } else {
+          await processImage(env, taskId, body);
+        }
+      } catch (procErr) {
+        await env.DB.prepare(
+          "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
+        ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
+      }
+    })();
+
+    // Return immediately with task ID
     return Response.json({ success: true, data: { taskId } });
   } catch (e) {
     if ((e as Error).message === "Unauthorized") return Response.json({ success: false, error: "未登录" }, { status: 401 });
@@ -87,7 +96,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, prompt: actualPrompt, n: 1, size }),
+    body: JSON.stringify({ model, prompt: actualPrompt, n: 1, size, response_format: "b64_json" }),
   });
 
   if (!resp.ok) {
@@ -117,12 +126,10 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   const imagePath = env.IMAGES_BUCKET ? `/api/images?file=${filename}` :
     `data:image/png;base64,${btoa(String.fromCharCode(...new Uint8Array(bytes)))}`;
 
-  // Save to history
   await env.DB.prepare(
     "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at) VALUES (?, ?, ?, 'image', ?)"
   ).bind(body.keywords || "", actualPrompt, imagePath, new Date().toISOString()).run();
 
-  // Update task
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, updated_at = ? WHERE id = ?"
   ).bind(imagePath, new Date().toISOString(), taskId).run();
@@ -189,22 +196,31 @@ export async function onRequestPut(context: { request: Request; env: Env }) {
     
     const now = new Date().toISOString();
     await context.env.DB.prepare(
-      "UPDATE tasks SET status = 'processing', progress = 0, error = '', updated_at = ? WHERE id = ?"
+      "UPDATE tasks SET status = 'pending', progress = 0, error = '', updated_at = ? WHERE id = ?"
     ).bind(now, body.id).run();
 
     const taskId = body.id;
     const isVideo = body.type === "video";
-    try {
-      if (isVideo) {
-        await processVideo(context.env, taskId, body);
-      } else {
-        await processImage(context.env, taskId, body);
+    const env = context.env;
+    
+    // Fire-and-forget
+    (async () => {
+      try {
+        await env.DB.prepare(
+          "UPDATE tasks SET status = 'processing', updated_at = ? WHERE id = ?"
+        ).bind(new Date().toISOString(), taskId).run();
+
+        if (isVideo) {
+          await processVideo(env, taskId, body);
+        } else {
+          await processImage(env, taskId, body);
+        }
+      } catch (procErr) {
+        await env.DB.prepare(
+          "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
+        ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
       }
-    } catch (procErr) {
-      await context.env.DB.prepare(
-        "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
-      ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
-    }
+    })();
 
     return Response.json({ success: true });
   } catch (e) {
