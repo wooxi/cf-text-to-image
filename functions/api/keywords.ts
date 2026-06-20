@@ -29,16 +29,13 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 }
 
-// POST: add a keyword to an existing group, or create a new group
+// POST: add a keyword to an existing group, create a new group, or reorder
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
     const body = await context.request.json() as { action?: string; groupId?: number; name?: string; slug?: string; keywords?: string[]; orderedIds?: number[] };
-    
-    // Add single keyword to existing group
-    if (body.groupId && body.name) {
-      const name = body.name.trim();
-    // Reorder keywords within a group
+
+    // Reorder keywords within a group (must be checked FIRST, before groupId+name)
     if (body.action === "reorder" && body.groupId && Array.isArray(body.orderedIds)) {
       for (let i = 0; i < body.orderedIds.length; i++) {
         await context.env.DB.prepare(
@@ -48,6 +45,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       return Response.json({ success: true });
     }
 
+    // Add single keyword to existing group
+    if (body.groupId && body.name) {
+      const name = body.name.trim();
       if (!name) return Response.json({ success: false, error: "关键词不能为空" }, { status: 400 });
       await context.env.DB.prepare(
         "INSERT INTO keywords (group_id, name, created_at) VALUES (?, ?, ?)"
@@ -79,7 +79,6 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
 }
 
-// PUT: rename a keyword or update a group
 export async function onRequestPut(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
