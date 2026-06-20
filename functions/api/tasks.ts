@@ -111,21 +111,19 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   }
   actualPrompt += ", professional photography, highly detailed, masterpiece, sharp focus";
 
-  // Build request
-  const useEditsEndpoint = isImg2img && imageProvider !== "agnes_image";
-  const url = endpoint + (useEditsEndpoint ? "/images/edits" : "/images/generations");
+  // Build request - always use /images/generations with extra_body.image for img2img
+  // This works with both OpenAI-compatible and Agnes APIs
+  const url = endpoint + "/images/generations";
   
   const reqBody: Record<string, any> = { model, prompt: actualPrompt, n: 1, size };
   
-  // Add image for img2img
+  // Add image for img2img via extra_body (compatible with agnes-image and gpt-image models)
   if (isImg2img && body.image) {
     const images = Array.isArray(body.image) ? body.image : [body.image];
-    if (imageProvider === "agnes_image") {
-      if (!reqBody.extra_body) reqBody.extra_body = { response_format: "url" };
-      reqBody.extra_body.image = images.length === 1 ? images[0] : images;
-    } else {
-      reqBody.image = images.length === 1 ? images[0] : images;
-    }
+    reqBody.extra_body = { 
+      response_format: "url",
+      image: images.length === 1 ? images[0] : images 
+    };
   }
 
   const resp = await fetch(url, {
