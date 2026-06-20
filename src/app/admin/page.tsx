@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 /* ─── types ─── */
@@ -25,6 +25,136 @@ const MENU_ITEMS = [
   { key: "history", label: "生成历史", icon: "📋" },
   { key: "keywords", label: "关键词管理", icon: "🏷️" },
 ];
+
+// Drag-to-reorder keyword group card with touch support
+function KeywordGroupCard({ group, newKw, onNewKwChange, onAdd, onDelete, onReorder }: {
+  group: KeywordGroup;
+  newKw: string;
+  onNewKwChange: (v: string) => void;
+  onAdd: () => void;
+  onDelete: (id: number) => void;
+  onReorder: (orderedIds: number[]) => void;
+}) {
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [overId, setOverId] = useState<number | null>(null);
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleDragStart(e: React.DragEvent, id: number) {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function handleDragOver(e: React.DragEvent, id: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (id !== dragId) setOverId(id);
+  }
+  function handleDrop(e: React.DragEvent, id: number) {
+    e.preventDefault();
+    if (dragId === null || dragId === id) { setDragId(null); setOverId(null); return; }
+    const ids = group.keywords.map(k => k.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(id);
+    if (fromIdx < 0 || toIdx < 0) { setDragId(null); setOverId(null); return; }
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, dragId);
+    onReorder(ids);
+    setDragId(null);
+    setOverId(null);
+  }
+  function handleDragEnd() { setDragId(null); setOverId(null); }
+
+  // Touch handlers for mobile long-press drag
+  function handleTouchStart(e: React.TouchEvent, id: number) {
+    const t = e.touches[0];
+    setDragStartPos({ x: t.clientX, y: t.clientY });
+    touchTimer.current = setTimeout(() => {
+      setIsDragging(true);
+      setDragId(id);
+    }, 400);
+  }
+  function handleTouchMove(e: React.TouchEvent) {
+    if (touchTimer.current && !isDragging) {
+      const t = e.touches[0];
+      if (dragStartPos && (Math.abs(t.clientX - dragStartPos.x) > 10 || Math.abs(t.clientY - dragStartPos.y) > 10)) {
+        clearTimeout(touchTimer.current);
+        touchTimer.current = null;
+      }
+    }
+    if (isDragging) {
+      e.preventDefault();
+      const t = e.touches[0];
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const chip = el?.closest("[data-kid]");
+      if (chip) {
+        const kid = parseInt(chip.getAttribute("data-kid") || "0");
+        if (kid && kid !== dragId) setOverId(kid);
+      }
+    }
+  }
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null; }
+    if (isDragging && dragId !== null && overId !== null && dragId !== overId) {
+      const ids = group.keywords.map(k => k.id);
+      const fromIdx = ids.indexOf(dragId);
+      const toIdx = ids.indexOf(overId);
+      if (fromIdx >= 0 && toIdx >= 0) {
+        ids.splice(fromIdx, 1);
+        ids.splice(toIdx, 0, dragId);
+        onReorder(ids);
+      }
+    }
+    setIsDragging(false);
+    setDragId(null);
+    setOverId(null);
+    setDragStartPos(null);
+  }
+
+  return (
+    <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{group.name}</span>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>{group.keywords.length} 个</span>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-3" onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+        {group.keywords.map(k => {
+          const isDrag = dragId === k.id;
+          const isOver = overId === k.id;
+          return (
+            <span
+              key={k.id}
+              data-kid={k.id}
+              draggable={isDragging ? false : true}
+              onDragStart={(e) => handleDragStart(e, k.id)}
+              onDragOver={(e) => handleDragOver(e, k.id)}
+              onDrop={(e) => handleDrop(e, k.id)}
+              onDragEnd={handleDragEnd}
+              onTouchStart={(e) => handleTouchStart(e, k.id)}
+              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs cursor-grab active:cursor-grabbing select-none transition-all"
+              style={{
+                borderColor: isOver ? "var(--accent)" : "var(--border)",
+                background: isDrag ? "var(--accent-light)" : isOver ? "var(--accent-light)" : "var(--bg-tertiary)",
+                color: isDrag ? "var(--accent)" : "var(--text-secondary)",
+                opacity: isDrag ? 0.5 : 1,
+                transform: isOver ? "scale(1.05)" : "scale(1)",
+                touchAction: "none",
+              }}
+            >
+              <span style={{ opacity: 0.4, fontSize: "10px" }}>⠿</span>
+              {k.name}
+              <button onClick={(e) => { e.stopPropagation(); onDelete(k.id); }} className="opacity-50 hover:opacity-100" style={{ color: "var(--danger)" }}>×</button>
+            </span>
+          );
+        })}
+      </div>
+      <div className="flex gap-2">
+        <input value={newKw} onChange={(e) => onNewKwChange(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAdd())} className="flex-1 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="添加关键词..." />
+        <button onClick={onAdd} className="rounded-lg px-4 py-2 text-xs font-medium text-white" style={{ background: "var(--accent)" }}>添加</button>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const router = useRouter();
@@ -156,13 +286,41 @@ export default function AdminPage() {
   async function addKeyword(groupId: number) {
     const name = (newKw[groupId] || "").trim();
     if (!name) return;
+    const tempId = Date.now();
+    // Optimistic update - add immediately without reload
+    setKwGroups(prev => prev.map(g =>
+      g.id === groupId ? { ...g, keywords: [...g.keywords, { id: tempId, name }] } : g
+    ));
+    setNewKw(p => ({ ...p, [groupId]: "" }));
     try {
       const r = await fetch("/api/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ groupId, name }) });
-      if (r.ok) { setNewKw(p => ({ ...p, [groupId]: "" })); loadKeywords(); }
+      if (r.ok) {
+        const d = await r.json();
+        // Replace temp ID with real ID from server
+        setKwGroups(prev => prev.map(g =>
+          g.id === groupId ? { ...g, keywords: g.keywords.map(k => k.id === tempId ? { ...k, id: d.data?.id || tempId } : k) } : g
+        ));
+      }
     } catch {}
   }
-  async function deleteKeyword(id: number) {
-    try { await fetch(`/api/keywords?id=${id}`, { method: "DELETE" }); loadKeywords(); } catch {}
+  async function deleteKeyword(groupId: number, id: number) {
+    // Optimistic update - remove immediately
+    setKwGroups(prev => prev.map(g =>
+      g.id === groupId ? { ...g, keywords: g.keywords.filter(k => k.id !== id) } : g
+    ));
+    try { await fetch(`/api/keywords?id=${id}`, { method: "DELETE" }); } catch {}
+  }
+  async function reorderKeywords(groupId: number, orderedIds: number[]) {
+    // Optimistic update
+    setKwGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      const map = new Map(g.keywords.map(k => [k.id, k]));
+      const reordered = orderedIds.map(id => map.get(id)).filter(Boolean) as typeof g.keywords;
+      return { ...g, keywords: reordered };
+    }));
+    try {
+      await fetch("/api/keywords/reorder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ groupId, orderedIds }) });
+    } catch {}
   }
 
   /* ─── loading ─── */
@@ -329,25 +487,11 @@ export default function AdminPage() {
           {menuKey === "keywords" && (
             <div>
               <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>关键词管理</h2>
-              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>管理关键词分组和词条</p>
+              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>长按拖拽关键词排序，点击 × 删除</p>
               <div className="space-y-4">
                 {kwLoading ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>加载中...</div> :
                  kwGroups.map(g => (
-                  <div key={g.id} className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{g.name}</span>
-                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>{g.keywords.length} 个</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {g.keywords.map(k => (
-                        <span key={k.id} className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>{k.name}<button onClick={() => deleteKeyword(k.id)} className="opacity-50 hover:opacity-100" style={{ color: "var(--danger)" }}>×</button></span>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <input value={newKw[g.id] || ""} onChange={(e) => setNewKw(p => ({ ...p, [g.id]: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKeyword(g.id))} className="flex-1 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="添加关键词..." />
-                      <button onClick={() => addKeyword(g.id)} className="rounded-lg px-4 py-2 text-xs font-medium text-white" style={{ background: "var(--accent)" }}>添加</button>
-                    </div>
-                  </div>
+                  <KeywordGroupCard key={g.id} group={g} newKw={newKw[g.id] || ""} onNewKwChange={(v) => setNewKw(p => ({ ...p, [g.id]: v }))} onAdd={() => addKeyword(g.id)} onDelete={(kid) => deleteKeyword(g.id, kid)} onReorder={(ids) => reorderKeywords(g.id, ids)} />
                 ))}
               </div>
             </div>

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS keyword_groups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
+  sort_order INTEGER DEFAULT 0,
   slug TEXT NOT NULL UNIQUE,
   description TEXT DEFAULT '',
   sort_order INTEGER DEFAULT 0,
@@ -58,3 +59,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Add sort_order for keyword reordering
+ALTER TABLE keywords ADD COLUMN sort_order INTEGER DEFAULT 0;

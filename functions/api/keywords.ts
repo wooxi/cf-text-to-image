@@ -10,7 +10,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const result = [];
     for (const group of groups.results) {
       const kws = await context.env.DB.prepare(
-        "SELECT id, name, group_id FROM keywords WHERE group_id = ? ORDER BY id ASC"
+        "SELECT id, name, group_id FROM keywords WHERE group_id = ? ORDER BY sort_order ASC, id ASC"
       ).bind((group as any).id).all();
       result.push({
         facets: [],
