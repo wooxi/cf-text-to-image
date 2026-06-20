@@ -382,9 +382,23 @@ export default function AdminPage() {
   );
 
   return (
-    <div className="min-h-screen flex" style={{ background: "var(--bg-primary)" }}>
+    <div className="min-h-screen flex flex-col md:flex-row" style={{ background: "var(--bg-primary)" }}>      {/* ─── Mobile Top Nav ─── */}
+      <div className="flex md:hidden shrink-0 overflow-x-auto border-b" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+        <div className="flex items-center gap-1 px-3 py-2 shrink-0">
+          <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>⚙️ 后台</span>
+        </div>
+        {MENU_ITEMS.map(item => (
+          <button key={item.key} onClick={() => { setMenuKey(item.key); setMsg(""); if (item.key === "history") loadHistory(); if (item.key === "keywords") loadKeywords(); }}
+            className="shrink-0 px-4 py-2 text-xs font-medium transition whitespace-nowrap"
+            style={{ color: menuKey === item.key ? "var(--accent)" : "var(--text-secondary)", borderBottom: menuKey === item.key ? "2px solid var(--accent)" : "2px solid transparent" }}>
+            {item.icon} {item.label}
+          </button>
+        ))}
+        <button onClick={() => router.push("/")} className="shrink-0 px-4 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">← 返回</button>
+      </div>
+
       {/* ─── Left Sidebar ─── */}
-      <aside className="w-64 shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+      <aside className="hidden md:flex w-64 shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
         <div className="p-5 border-b" style={{ borderColor: "var(--border)" }}>
           <h1 className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>⚙️ 后台管理</h1>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{user.username}</p>
