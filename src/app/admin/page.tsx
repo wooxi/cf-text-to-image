@@ -428,7 +428,7 @@ export default function AdminPage() {
 
       {/* ─── Right Content ─── */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto p-8">
+        <div className="w-full p-6 md:p-8">
           {msg && <div className="mb-4 rounded-lg px-4 py-3 text-sm" style={{ background: msg.includes("成功") ? "var(--success-bg)" : "var(--accent-light)", color: msg.includes("成功") ? "var(--success)" : "var(--accent)" }}>{msg}</div>}
 
           {/* ── 端点配置 ── */}
@@ -509,36 +509,51 @@ export default function AdminPage() {
           {/* ── 生成历史 ── */}
           {menuKey === "history" && (
             <div>
-              <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>生成历史</h2>
-              <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>查看所有生成记录</p>
-              <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>{history.length} 条记录</span>
-                  <button onClick={loadHistory} className="text-xs rounded-lg border px-3 py-1.5" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>刷新</button>
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>生成历史</h2>
+                  <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>全部生成记录，共 {history.length} 条</p>
                 </div>
-                {historyLoading ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>加载中...</div> :
-                 history.length === 0 ? <div className="text-center py-8 text-sm" style={{ color: "var(--text-muted)" }}>暂无生成记录</div> :
-                 <div className="overflow-x-auto">
-                   <table className="w-full text-sm">
-                     <thead><tr style={{ color: "var(--text-muted)" }}>
-                       <th className="text-left py-2 px-2">类型</th><th className="text-left py-2 px-2">提示词</th><th className="text-left py-2 px-2">图片</th><th className="text-left py-2 px-2">时间</th><th className="py-2 px-2"></th>
-                     </tr></thead>
-                     <tbody>{history.map(h => (
-                       <tr key={h.id} className="border-t" style={{ borderColor: "var(--border)" }}>
-                         <td className="py-2 px-2"><span className="text-xs rounded px-1.5 py-0.5" style={{ background: h.type === "video" ? "var(--accent-light)" : "var(--success-bg)", color: h.type === "video" ? "var(--accent)" : "var(--success)" }}>{h.type}</span></td>
-                         <td className="py-2 px-2 max-w-xs truncate" style={{ color: "var(--text-secondary)" }}>{h.prompt || h.keywordNames}</td>
-                         <td className="py-2 px-2">{h.imagePath ? <a href={h.imagePath} target="_blank" className="text-xs" style={{ color: "var(--accent)" }}>查看</a> : "—"}</td>
-                         <td className="py-2 px-2 text-xs" style={{ color: "var(--text-muted)" }}>{new Date(h.createdAt).toLocaleString("zh-CN")}</td>
-                         <td className="py-2 px-2"><button onClick={() => deleteHistory(h.id)} className="text-xs" style={{ color: "var(--danger)" }}>删除</button></td>
-                       </tr>
-                     ))}</tbody>
-                   </table>
-                 </div>
-                }
+                <button onClick={loadHistory} className="rounded-lg border px-4 py-2 text-xs font-medium" style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-tertiary)" }}>刷新</button>
               </div>
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-16"><div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }} /></div>
+              ) : history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3"><span className="text-3xl opacity-30">🖼️</span><p className="text-sm" style={{ color: "var(--text-muted)" }}>暂无生成记录</p></div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {history.map(h => (
+                    <div key={h.id} className="rounded-xl border overflow-hidden transition-all hover:shadow-lg" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                      {/* Image thumbnail */}
+                      <div className="relative aspect-square overflow-hidden bg-[var(--bg-tertiary)] cursor-pointer" onClick={() => window.open(h.imagePath, "_blank")}>
+                        {h.imagePath ? (
+                          <img src={h.imagePath} alt={h.prompt || h.keywordNames} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          <div className="flex items-center justify-center h-full text-xs" style={{ color: "var(--text-muted)" }}>暂无图片</div>
+                        )}
+                        {/* Type badge */}
+                        <span className="absolute top-2 left-2 text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ background: h.type === "video" ? "var(--accent-light)" : "rgba(34,197,94,0.15)", color: h.type === "video" ? "var(--accent)" : "rgb(34,197,94)" }}>{h.type || "image"}</span>
+                      </div>
+                      {/* Details */}
+                      <div className="p-3 space-y-1.5">
+                        <p className="text-xs leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>{h.prompt || h.keywordNames || "（无描述）"}</p>
+                        {h.keywordNames && h.prompt !== h.keywordNames && (
+                          <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>关键词: {h.keywordNames}</p>
+                        )}
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{new Date(h.createdAt).toLocaleString("zh-CN")}</span>
+                          <div className="flex gap-2">
+                            <a href={h.imagePath} target="_blank" className="text-[10px] font-medium" style={{ color: "var(--accent)" }}>打开</a>
+                            <button onClick={() => deleteHistory(h.id)} className="text-[10px] font-medium" style={{ color: "var(--danger)" }}>删除</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-
           {/* ── 关键词管理 ── */}
           {menuKey === "keywords" && (
             <div>
