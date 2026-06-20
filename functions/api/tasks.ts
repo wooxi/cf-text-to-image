@@ -97,18 +97,41 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   const apiKey = await getApiKey(env, "image_api_key") || await getApiKey(env, "llm_api_key");
   const model = await getConfig(env, "image_model", "dall-e-3");
   const size = body.size || "1024x1024";
+  const imageProvider = await getConfig(env, "image_provider", "openai_image");
+  const isImg2img = body.type === "img2img" || (Array.isArray(body.image) && body.image.length > 0);
 
   if (!apiKey) throw new Error("请先设置 IMAGE_API_KEY");
 
-  const actualPrompt = body.prompt || body.keywords || "";
+  let actualPrompt = body.prompt || body.keywords || "";
   if (!actualPrompt.trim()) throw new Error("缺少提示词");
 
-  const url = endpoint + "/images/generations";
+  // For img2img, add prefix like original
+  if (isImg2img) {
+    actualPrompt = "Using the reference image as the base, make the following edits while preserving the subject's identity, pose, and composition: " + actualPrompt;
+  }
+  actualPrompt += ", professional photography, highly detailed, masterpiece, sharp focus";
+
+  // Build request
+  const useEditsEndpoint = isImg2img && imageProvider !== "agnes_image";
+  const url = endpoint + (useEditsEndpoint ? "/images/edits" : "/images/generations");
   
+  const reqBody: Record<string, any> = { model, prompt: actualPrompt, n: 1, size };
+  
+  // Add image for img2img
+  if (isImg2img && body.image) {
+    const images = Array.isArray(body.image) ? body.image : [body.image];
+    if (imageProvider === "agnes_image") {
+      if (!reqBody.extra_body) reqBody.extra_body = { response_format: "url" };
+      reqBody.extra_body.image = images.length === 1 ? images[0] : images;
+    } else {
+      reqBody.image = images.length === 1 ? images[0] : images;
+    }
+  }
+
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, prompt: actualPrompt, n: 1, size }),
+    body: JSON.stringify(reqBody),
   });
 
   if (!resp.ok) {
@@ -140,7 +163,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
 
   await env.DB.prepare(
     "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at) VALUES (?, ?, ?, 'image', ?)"
-  ).bind(body.keywords || "", actualPrompt, imagePath, new Date().toISOString()).run();
+  ).bind(body.keywords || "", body.prompt || actualPrompt, imagePath, new Date().toISOString()).run();
 
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, updated_at = ? WHERE id = ?"
