@@ -107,6 +107,8 @@ export default function HomePage() {
   const [authChecked, setAuthChecked] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const actionLock = useRef(false);
+  const taskQueue = useRef<{ body: Record<string, unknown>; tempId: number }[]>([]);
+  const isProcessing = useRef(false);
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -252,6 +254,50 @@ export default function HomePage() {
     }
   };
 
+  // Sequential task processor - sends one task at a time to avoid CF timeout
+  const processQueue = useCallback(() => {
+    if (isProcessing.current) return;
+    const next = taskQueue.current.shift();
+    if (!next) return;
+    isProcessing.current = true;
+    const { body, tempId } = next;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setLiveTasks((prev) => prev.map((t) =>
+            t.id === tempId
+              ? { ...t, status: "failed", error: data.error || "创建失败" }
+              : t
+          ));
+        } else {
+          setLiveTasks((prev) => prev.map((t) =>
+            t.id === tempId
+              ? { ...t, id: data.data.taskId, status: "processing" }
+              : t
+          ));
+        }
+      } catch {
+        setLiveTasks((prev) => prev.map((t) =>
+          t.id === tempId
+            ? { ...t, status: "failed", error: "网络错误" }
+            : t
+        ));
+      } finally {
+        isProcessing.current = false;
+        if (taskQueue.current.length > 0) {
+          setTimeout(() => processQueue(), 100);
+        }
+      }
+    })();
+  }, []);
+
   const handleGenerate = async () => {
     if (!loggedIn) {
       setShowLogin(true);
@@ -361,7 +407,8 @@ export default function HomePage() {
 
     // Brief loading flash for UX feedback, then allow immediate next submit
     setLoading(true);
-    setStatusText("已提交，可继续添加任务...");
+    const queueLen = taskQueue.current.length;
+    setStatusText(queueLen > 0 ? `排队中: ${queueLen} 个等待...` : "已提交，生成中...");
     setTimeout(() => { setLoading(false); setStatusText(""); }, 800);
   };
 

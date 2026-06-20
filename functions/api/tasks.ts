@@ -48,14 +48,14 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 }
 
-export async function onRequestPost(context: { request: Request; env: Env; waitUntil: (p: Promise<any>) => void }) {
+export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
     const body = await context.request.json() as Record<string, any>;
     const now = new Date().toISOString();
     const type = body.type || "image";
+    const isVideo = type === "video";
 
-    // Create task with processing status
     await context.env.DB.prepare(
       "INSERT INTO tasks (status, type, keyword_names, prompt, size, reference_image, progress, created_at, updated_at) VALUES ('processing', ?, ?, ?, ?, ?, 0, ?, ?)"
     ).bind(
@@ -67,16 +67,18 @@ export async function onRequestPost(context: { request: Request; env: Env; waitU
     const lastRow = await context.env.DB.prepare("SELECT last_insert_rowid() as id").first();
     const taskId = (lastRow as any)?.id as number;
 
-    // Process in background using waitUntil - POST returns immediately
-    const isVideo = type === "video";
-    context.waitUntil(
-      (isVideo ? processVideo(context.env, taskId, body) : processImage(context.env, taskId, body))
-        .catch(async (procErr: any) => {
-          await context.env.DB.prepare(
-            "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
-          ).bind(procErr.message || "处理失败", new Date().toISOString(), taskId).run();
-        })
-    );
+    // Process synchronously within the request lifecycle
+    try {
+      if (isVideo) {
+        await processVideo(context.env, taskId, body);
+      } else {
+        await processImage(context.env, taskId, body);
+      }
+    } catch (procErr) {
+      await context.env.DB.prepare(
+        "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
+      ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
+    }
 
     return Response.json({ success: true, data: { taskId } });
   } catch (e) {
@@ -128,7 +130,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
             for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
             const filename = crypto.randomUUID() + "." + ext;
             await env.IMAGES_BUCKET.put("images/" + filename, bytes.buffer, { httpMetadata: { contentType } });
-            return "https://" + "TODO_REPLACE_HOSTNAME" + "/api/images?file=" + filename;
+            return "https://cf-text-to-image-ark.pages.dev/api/images?file=" + filename;
           }
         }
         return img;
@@ -138,7 +140,6 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     if (imageProvider === "agnes_image") {
       reqBody.extra_body = { ...reqBody.extra_body, image: images[0] };
     } else if (imageProvider === "openai_image" && useEditsEndpoint) {
-      // For edits endpoint, we need multipart - skip to generations with image in body
       reqBody.image = images[0];
     } else {
       reqBody.extra_body = { ...(reqBody.extra_body || {}), image: images[0] };
@@ -245,7 +246,7 @@ export async function onRequestDelete(context: { request: Request; env: Env }) {
   }
 }
 
-export async function onRequestPut(context: { request: Request; env: Env; waitUntil: (p: Promise<any>) => void }) {
+export async function onRequestPut(context: { request: Request; env: Env }) {
   try {
     await requireAuth(context.env, context.request);
     const body = await context.request.json() as { id?: number; type?: string; keywords?: string; prompt?: string; size?: string; image?: string[] };
@@ -258,14 +259,17 @@ export async function onRequestPut(context: { request: Request; env: Env; waitUn
 
     const taskId = body.id;
     const isVideo = body.type === "video";
-    context.waitUntil(
-      (isVideo ? processVideo(context.env, taskId, body) : processImage(context.env, taskId, body))
-        .catch(async (procErr: any) => {
-          await context.env.DB.prepare(
-            "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
-          ).bind(procErr.message || "处理失败", new Date().toISOString(), taskId).run();
-        })
-    );
+    try {
+      if (isVideo) {
+        await processVideo(context.env, taskId, body);
+      } else {
+        await processImage(context.env, taskId, body);
+      }
+    } catch (procErr) {
+      await context.env.DB.prepare(
+        "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
+      ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
+    }
 
     return Response.json({ success: true });
   } catch (e) {
