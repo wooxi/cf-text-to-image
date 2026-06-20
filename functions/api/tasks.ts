@@ -146,15 +146,20 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     }
   }
 
-  let resp: Response;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
-    resp = await fetch(imgUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-      body: JSON.stringify(reqBody),
-    });
-    if (resp.status !== 429) break;
+  let resp: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 2000));
+    try {
+      resp = await fetch(imgUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+        body: JSON.stringify(reqBody),
+      });
+    } catch (fetchErr) {
+      if (attempt < 2) continue;
+      throw new Error("生图请求失败: " + (fetchErr as Error).message);
+    }
+    if (resp.status !== 429 && resp.status !== 502 && resp.status !== 503 && resp.status !== 504) break;
   }
 
   if (!resp!.ok) {

@@ -407,8 +407,7 @@ export default function HomePage() {
 
     // Brief loading flash for UX feedback, then allow immediate next submit
     setLoading(true);
-    const queueLen = taskQueue.current.length;
-    setStatusText(queueLen > 0 ? `排队中: ${queueLen} 个等待...` : "已提交，生成中...");
+    setStatusText("已提交，可继续添加任务...");
     setTimeout(() => { setLoading(false); setStatusText(""); }, 800);
   };
 
