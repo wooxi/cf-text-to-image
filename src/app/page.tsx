@@ -327,7 +327,6 @@ export default function HomePage() {
     };
     setLiveTasks((prev) => [tempTask, ...prev]);
     startPolling();
-    setStatusText("已提交，可继续添加任务...");
 
     void (async () => {
       try {
@@ -354,10 +353,6 @@ export default function HomePage() {
             ? { ...task, status: "failed", error: message }
             : task
         ));
-      } finally {
-        window.setTimeout(() => {
-          setStatusText((current) => current === "已提交，可继续添加任务..." ? "" : current);
-        }, 1200);
       }
     })();
   };
@@ -704,11 +699,9 @@ export default function HomePage() {
                     >
                       {!loggedIn
                         ? "🔐 请先登录"
-                        : statusText === "已提交，可继续添加任务..."
-                          ? statusText
-                          : mode === "video"
-                            ? "🎬 提交视频"
-                            : "✨ 提交生成"}
+                        : mode === "video"
+                          ? "🎬 提交视频"
+                          : "✨ 提交生成"}
                     </button>
                   </div>
                 </div>
