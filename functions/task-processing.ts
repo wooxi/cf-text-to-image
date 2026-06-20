@@ -18,6 +18,10 @@ export function normalizeEndpoint(endpoint: string): string {
   return url;
 }
 
+function logTask(event: string, payload: Record<string, unknown>) {
+  console.log(JSON.stringify({ scope: "task", event, ...payload }));
+}
+
 function parseTaskBody(task: TaskRow): Record<string, any> {
   const raw = task.request_json || "";
   if (raw) {
@@ -37,6 +41,7 @@ function parseTaskBody(task: TaskRow): Record<string, any> {
 
 async function markTaskFailed(env: Env, taskId: number, error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "处理失败");
+  logTask("failed", { taskId, error: message.slice(0, 500) });
   await env.DB.prepare(
     "UPDATE tasks SET status = 'failed', error = ?, progress = 0, updated_at = ? WHERE id = ?"
   ).bind(message.slice(0, 500), new Date().toISOString(), taskId).run();
@@ -47,8 +52,14 @@ export async function processTaskById(env: Env, taskId: number): Promise<void> {
     "SELECT id, status, type, keyword_names, prompt, size, reference_image, request_json FROM tasks WHERE id = ?"
   ).bind(taskId).first<TaskRow>();
 
-  if (!task) return;
-  if (task.status === "completed") return;
+  if (!task) {
+    logTask("missing", { taskId });
+    return;
+  }
+  if (task.status === "completed") {
+    logTask("skip-completed", { taskId });
+    return;
+  }
 
   const lock = await env.DB.prepare(
     "UPDATE tasks SET status = 'processing', progress = 5, error = '', updated_at = ? WHERE id = ? AND status IN ('pending', 'failed')"
@@ -56,10 +67,18 @@ export async function processTaskById(env: Env, taskId: number): Promise<void> {
 
   if ((lock.meta?.changes || 0) === 0) {
     const latest = await env.DB.prepare("SELECT status FROM tasks WHERE id = ?").bind(taskId).first<{ status: string }>();
+    logTask("lock-skipped", { taskId, status: latest?.status || "missing" });
     if (!latest || latest.status === "completed" || latest.status === "processing") return;
   }
 
   const body = parseTaskBody(task);
+  logTask("start", {
+    taskId,
+    type: body.type || task.type,
+    size: body.size || task.size,
+    hasPrompt: Boolean((body.prompt || body.keywords || "").trim()),
+    imageCount: Array.isArray(body.image) ? body.image.length : body.image ? 1 : 0,
+  });
 
   try {
     if ((body.type || task.type) === "video") {
@@ -130,6 +149,15 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     }
   }
 
+  logTask("request", {
+    taskId,
+    endpoint: imgUrl,
+    provider: imageProvider,
+    model,
+    size,
+    isImg2img,
+  });
+
   const resp = await fetch(imgUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
@@ -169,6 +197,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, error = '', updated_at = ? WHERE id = ?"
   ).bind(imagePath, new Date().toISOString(), taskId).run();
+  logTask("completed", { taskId, imagePath });
 }
 
 async function processVideo(env: Env, taskId: number, body: Record<string, any>) {
@@ -182,6 +211,7 @@ async function processVideo(env: Env, taskId: number, body: Record<string, any>)
   const actualPrompt = body.prompt || "";
   if (!actualPrompt.trim()) throw new Error("缺少提示词");
 
+  logTask("video-request", { taskId, endpoint: endpoint + "/videos/generations", model });
   const resp = await fetch(endpoint + "/videos/generations", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
@@ -211,4 +241,5 @@ async function processVideo(env: Env, taskId: number, body: Record<string, any>)
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, poster_path = ?, progress = 100, error = '', updated_at = ? WHERE id = ?"
   ).bind(videoUrl, posterUrl, new Date().toISOString(), taskId).run();
+  logTask("video-completed", { taskId, videoUrl });
 }

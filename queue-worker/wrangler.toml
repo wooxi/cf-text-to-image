@@ -11,6 +11,10 @@ database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
 binding = "IMAGES_BUCKET"
 bucket_name = "txt2img-images"
 
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [[queues.consumers]]
 queue = "txt2img-task-queue"
 max_batch_size = 5
