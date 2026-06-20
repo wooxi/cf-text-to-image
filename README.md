@@ -1,374 +1,390 @@
-# 🎨 CF Text-to-Image — AI 文生图工作室
+# CF Text-to-Image
 
-> 基于 Cloudflare 全家桶（Pages + Functions + D1 + R2）的 AI 驱动文生图/图生图/文生视频平台。关键词组合智能生成提示词，异步任务队列，瀑布流画廊，全后台可视化管理。
+基于 Cloudflare Pages、Pages Functions、D1、R2、Queues 的 AI 文生图 / 图生图 / 视频生成项目。支持关键词编排、提示词生成与润色、任务历史、后台配置，以及适配手机端的创作体验。
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                    用户浏览器 (前端)                       │
-│  Next.js 14 + React 18 + TailwindCSS                     │
-├──────────────────────────────────────────────────────────┤
-│               Cloudflare Pages (静态托管)                  │
-├──────────────────────────────────────────────────────────┤
-│           Pages Functions (API 路由 /api/*)               │
-│  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌───────────────┐  │
-│  │ 认证 JWT │ │ 任务队列 │ │ 图片代理  │ │ 关键词/配置API │  │
-│  └─────────┘ └─────────┘ └──────────┘ └───────────────┘  │
-├──────────┬───────────────┬───────────────┬───────────────┤
-│  D1 数据库 │   R2 图片存储  │   环境变量/密钥  │  外部 AI API   │
-│ (用户/任务/ │ (生成图片/     │ (API Key 安全  │ (OpenAI兼容/  │
-│  历史/配置) │  参考图)       │  存储，不暴露)  │  Agnes视频)   │
-└──────────┴───────────────┴───────────────┴───────────────┘
-```
+当前仓库已经从“同步请求直接跑生图”的模式，演进到“前台提交任务，后台异步消费”的模式，用于缓解连续点击提交时的阻塞与失败问题。
 
-## ✨ 功能特性
+## 当前状态
 
-### 创作功能
+当前线上由两个 Cloudflare 服务组成：
 
-- **关键词导演** — 8 组 120+ 预设关键词（主体/环境/服装/光线/风格/输出规格），多选组合后 AI 自动生成专业提示词
-- **参考图编辑（图生图）** — 上传参考图 + 编辑指令，保留原图结构只改指定属性（服装/风格/光线等）
-- **视频生成** — 文生视频、图生视频、关键帧动画，支持自定义分辨率/帧数/帧率
-- **提示词润色** — AI 润色手写描述，增强画面感和氛围
-- **连续提交** — 支持连续提交多个生成任务，实时轮询状态，无需等待
+- cf-text-to-image
+  - 类型：Cloudflare Pages
+  - 职责：前端页面、/api/* 接口、登录鉴权、任务入库、历史和配置管理
+- cf-text-to-image-task-consumer
+  - 类型：Cloudflare Worker
+  - 职责：消费 Queue 中的任务，调用图像 / 视频模型，写回 D1 与 R2
 
-### 画廊与展示
+这不是两个网站，而是“一个站点 + 一个后台消费者”。用户实际访问的仍然是原来的 Pages 项目。
 
-- **瀑布流布局** — 响应式多列（1-5列自适应），懒加载 + IntersectionObserver
-- **全屏查看** — 点击放大，支持复制提示词、下载、删除
-- **筛选排序** — 按类型（图片/视频/全部）筛选，最新/最早排序
-- **任务卡片** — 实时显示进度条、状态（排队/处理中/完成/失败），支持重试和删除
+## 核心能力
 
-### 后台管理
+### 创作能力
 
-- **左侧菜单导航** — 端点配置 / 提示词设定 / 生成历史 / 关键词管理
-- **端点配置** — LLM / 图像 / 视频三组独立配置，支持自动获取模型列表
-- **提示词设定** — 三组系统提示词可自定义（关键词生图 / 视频生成 / 润色），留空用默认值
-- **生成历史** — 全量记录查看，支持删除
-- **关键词管理** — 分组管理关键词，实时增删
+- 关键词导演：通过预设关键词快速组合画面主体、镜头、风格和输出规格
+- 提示词生成：根据关键词由 LLM 自动生成更完整的提示词
+- 提示词润色：对手写提示词进行扩写和风格修正
+- 文生图：支持 OpenAI 兼容接口与定制上游网关
+- 图生图：支持参考图编辑，按 provider 自动切换请求体格式
+- 视频生成：支持文本视频与参考图视频参数提交
 
-### 安全设计
+### 任务能力
 
-- **API Key 不入库** — 密钥通过 D1 config 表加密存储，API 返回"已设置/未设置"不暴露明文
-- **JWT 认证** — 所有 API 端点鉴权，图片代理端点公开（供 AI API 回拉参考图）
-- **文件名 sanitize** — 图片代理防路径遍历攻击
+- 连续提交：允许前端连续点击提交多个任务
+- 异步处理：任务先入库，再进入队列，由后台消费者处理
+- 状态轮询：前端轮询 pending / processing / failed / completed
+- 历史记录：生成成功后写入 image_history
+- 重试能力：失败任务可重置为 pending 后重新入队
 
-## 🛠 技术栈
+### 管理能力
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 前端框架 | Next.js 14 (App Router) | 静态导出 `out/` 部署到 Pages |
-| UI | React 18 + TailwindCSS 3 | 响应式 + 暗色主题 |
-| API | Cloudflare Pages Functions | `functions/api/*.ts` 自动路由 |
-| 数据库 | Cloudflare D1 (SQLite) | 用户/任务/历史/关键词/配置 |
-| 图片存储 | Cloudflare R2 | 生成图片 + 参考图临时存储 |
-| 认证 | JWT (jose) + bcryptjs | Cookie-based 会话 |
-| CI/CD | GitHub Actions | push to master 自动部署 |
+- 后台登录鉴权
+- 模型端点、Key、模型名配置
+- 提示词系统设定词配置
+- 关键词管理
+- 历史记录查看与删除
 
-## 📁 项目结构
+## 当前架构
 
-```
+~~~text
+Browser
+  -> Cloudflare Pages (cf-text-to-image)
+      -> Pages Functions /api/*
+          -> D1 (tasks, image_history, config, users ...)
+          -> R2 (generated images, reference images)
+          -> Queue producers (txt2img-task-queue-a, txt2img-task-queue-b)
+
+Queue A / Queue B
+  -> Worker consumer (cf-text-to-image-task-consumer)
+      -> External image / video model APIs
+      -> D1 status updates
+      -> R2 image persistence
+~~~
+
+### 为什么是两条队列
+
+为了保留一定并发能力，但避免单个队列批处理时的不稳定，当前实现使用两条独立队列：
+
+- txt2img-task-queue-a
+- txt2img-task-queue-b
+
+任务按 taskId 奇偶分流：
+
+- 偶数任务 -> Queue A
+- 奇数任务 -> Queue B
+
+每条队列内部串行消费，两条队列并行工作。这样比“一个队列内批量 Promise.all 并发”更稳，也更容易排查问题。
+
+## 技术栈
+
+- 前端：Next.js 14, React 18, Tailwind CSS
+- 托管：Cloudflare Pages
+- API：Cloudflare Pages Functions
+- 异步任务：Cloudflare Queues
+- 后台消费者：Cloudflare Worker
+- 数据库：Cloudflare D1
+- 对象存储：Cloudflare R2
+- 认证：JWT + bcryptjs
+- CI/CD：GitHub Actions
+
+## 仓库结构
+
+~~~text
 cf-text-to-image/
-├── src/                          # 前端源码
-│   ├── app/
-│   │   ├── page.tsx              # 首页（创作台）
-│   │   ├── admin/page.tsx        # 后台管理（左侧菜单布局）
-│   │   ├── layout.tsx            # 根布局
-│   │   └── globals.css           # 全局样式 + CSS变量
-│   ├── components/               # React组件
-│   │   ├── MasonryGallery.tsx    # 瀑布流画廊
-│   │   ├── ImageCard.tsx         # 图片卡片（懒加载）
-│   │   ├── KeywordSelector.tsx   # 关键词选择器
-│   │   ├── ImageUploader.tsx     # 参考图上传
-│   │   ├── TaskCard.tsx          # 任务进度卡片
-│   │   ├── Lightbox.tsx          # 全屏查看器
-│   │   ├── LoginModal.tsx        # 登录弹窗
-│   │   ├── Header.tsx            # 顶部导航
-│   │   ├── MobileHome.tsx        # 移动端首页
-│   │   └── ThemeProvider.tsx     # 主题切换
-│   ├── lib/
-│   │   ├── keyword-presets.ts    # 预设关键词数据
-│   │   └── generated-media.ts    # 媒体工具
-│   └── types/index.ts            # TypeScript 类型定义
-├── functions/                    # Cloudflare Pages Functions (API)
-│   ├── auth.ts                   # JWT 认证中间件
-│   ├── db.ts                     # D1 连接 + config 读取
-│   └── api/
-│       ├── auth/
-│       │   ├── login.ts          # 登录
-│       │   ├── register.ts       # 注册
-│       │   └── me.ts             # 当前用户
-│       ├── tasks.ts              # 任务 CRUD + 生图/视频处理
-│       ├── generate-prompt.ts    # AI 生成提示词
-│       ├── polish.ts             # AI 润色
-│       ├── images.ts             # R2 图片代理 (/api/images?file=)
-│       ├── history.ts            # 生成历史
-│       ├── keywords.ts           # 关键词管理
-│       ├── config.ts             # 配置读写（密钥安全处理）
-│       └── models.ts             # 获取模型列表
-├── db/migrations/
-│   └── 0000_init.sql             # D1 数据库初始化
-├── .github/workflows/
-│   └── deploy.yml                # GitHub Actions 自动部署
-├── wrangler.toml                 # Cloudflare 配置
-├── package.json
-├── tailwind.config.ts
-├── next.config.js
-└── tsconfig.json
-```
+├─ src/
+│  ├─ app/
+│  │  ├─ page.tsx
+│  │  ├─ admin/page.tsx
+│  │  ├─ layout.tsx
+│  │  └─ globals.css
+│  ├─ components/
+│  └─ types/
+├─ functions/
+│  ├─ auth.ts
+│  ├─ db.ts
+│  ├─ task-processing.ts
+│  └─ api/
+│     ├─ auth/
+│     ├─ tasks.ts
+│     ├─ generate-image.ts
+│     ├─ generate-prompt.ts
+│     ├─ polish.ts
+│     ├─ images.ts
+│     ├─ history.ts
+│     ├─ keywords.ts
+│     ├─ config.ts
+│     └─ models.ts
+├─ queue-worker/
+│  ├─ task-consumer.ts
+│  └─ wrangler.toml
+├─ db/migrations/
+│  ├─ 0000_init.sql
+│  └─ 0001_task_request_json.sql
+├─ .github/workflows/deploy.yml
+├─ wrangler.toml
+└─ README.md
+~~~
 
-## 🚀 部署指南
+## 数据流说明
 
-### 前置条件
+### 创建任务
 
-- Cloudflare 账号
-- Node.js 20+
-- Git
+1. 前端调用 POST /api/tasks
+2. Pages Functions 将任务写入 tasks
+3. 保存完整 request_json
+4. 根据 taskId 奇偶将任务发送到 A 或 B 队列
+5. 前端开始轮询任务状态
 
-### 步骤 1：克隆仓库
+### 消费任务
 
-```bash
-git clone https://github.com/wooxi/cf-text-to-image.git
-cd cf-text-to-image
+1. Queue consumer 收到任务消息
+2. functions/task-processing.ts 读取任务并加锁
+3. 调用对应的图像或视频接口
+4. 成功时写入 R2 与 image_history
+5. 更新 tasks.status = completed
+6. 失败时写入错误信息到 tasks.error
+
+## 部署说明
+
+### 1. Cloudflare 资源
+
+至少需要这些资源：
+
+- 一个 Pages 项目：cf-text-to-image
+- 一个 D1 数据库：txt2img-db
+- 一个 R2 Bucket：txt2img-images
+- 两个 Queues：
+  - txt2img-task-queue-a
+  - txt2img-task-queue-b
+- 一个 Worker consumer：cf-text-to-image-task-consumer
+
+### 2. 本地初始化
+
+~~~bash
 npm install
-```
+npm run build
+~~~
 
-### 步骤 2：创建 Cloudflare 资源
+### 3. D1 初始化
 
-```bash
-# 登录 Cloudflare
-npx wrangler login
-
-# 创建 D1 数据库
-npx wrangler d1 create txt2img-db
-# 将返回的 database_id 填入 wrangler.toml
-
-# 创建 R2 存储桶
-npx wrangler r2 bucket create txt2img-images
-```
-
-### 步骤 3：配置 wrangler.toml
-
-```toml
-name = "cf-text-to-image"
-compatibility_date = "2025-06-01"
-pages_build_output_dir = "out"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "txt2img-db"
-database_id = "<你的数据库ID>"
-
-[[r2_buckets]]
-binding = "IMAGES_BUCKET"
-bucket_name = "txt2img-images"
-
-[vars]
-JWT_SECRET = "<随机生成的密钥>"
-ENABLE_REGISTRATION = "true"
-```
-
-### 步骤 4：初始化数据库
-
-```bash
+~~~bash
 npx wrangler d1 execute txt2img-db --remote --file=./db/migrations/0000_init.sql
-```
+npx wrangler d1 execute txt2img-db --remote --file=./db/migrations/0001_task_request_json.sql
+~~~
 
-### 步骤 5：创建管理员账号
+### 4. 创建队列
 
-```bash
-# 生成 bcrypt hash（可用 Node.js）
-node -e "const bcrypt = require('bcryptjs'); console.log(bcrypt.hashSync('your_password', 10));"
+~~~bash
+npx wrangler queues create txt2img-task-queue-a
+npx wrangler queues create txt2img-task-queue-b
+~~~
 
-# 写入数据库
-npx wrangler d1 execute txt2img-db --remote --command \
-  "INSERT INTO users (username, password_hash, created_at) VALUES ('admin', '<bcrypt_hash>', datetime('now'));"
-```
+### 5. 部署 Pages
 
-### 步骤 6：导入关键词种子数据
+~~~bash
+npx wrangler pages deploy out --project-name=cf-text-to-image --branch=master
+~~~
 
-```bash
-npx wrangler d1 execute txt2img-db --remote --file=./db/seed.sql
-```
+### 6. 部署消费者 Worker
 
-### 步骤 7：构建并部署
+~~~bash
+npx wrangler deploy --config queue-worker/wrangler.toml
+~~~
 
-```bash
-# 构建
-npm run build
+## GitHub Actions 自动部署
 
-# 部署到 Cloudflare Pages
-npx wrangler pages deploy out --project-name=cf-text-to-image
-```
+当前 workflow 文件：.github/workflows/deploy.yml
 
-### 步骤 8：配置 GitHub Actions 自动部署（可选）
+自动部署会执行：
 
-在 GitHub 仓库 Settings → Secrets → Actions 中添加：
+1. npm ci
+2. npm run build
+3. 确保两个队列存在
+4. 部署 Pages
+5. 部署 queue consumer Worker
 
-| Secret | 说明 |
-|--------|------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（需 Pages 编辑权限） |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
+### 注意事项
 
-之后每次 `git push origin master` 即自动部署。
+- 当前 workflow 已改为 Node 22
+- 原因：wrangler 4.84.1 及以上版本要求至少 Node 22
+- 如果 Actions 报 Wrangler requires at least Node.js v22.0.0，说明 workflow 仍然在用旧版本 Node
 
-### 步骤 9：后台配置模型端点
+## 配置项说明
 
-访问 `https://<你的域名>/admin`，用管理员账号登录：
+这些配置来自后台管理页或 D1 config 表：
 
-1. **端点配置** — 填写 LLM / 图像 / 视频三组的端点地址、API Key、模型名称
-2. **提示词设定** — 自定义三组系统提示词（可选，留空用默认值）
+- image_endpoint
+- image_api_key
+- image_model
+- image_provider
+- llm_endpoint
+- llm_api_key
+- llm_model
+- video_endpoint
+- video_api_key
+- video_model
 
-## ⚙️ 配置项说明
+### image_provider
 
-### 环境变量（wrangler.toml [vars]）
+当前支持两类：
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `JWT_SECRET` | JWT 签名密钥 | 无（必须设置） |
-| `ENABLE_REGISTRATION` | 是否开放注册 | `true` |
+- openai_image
+  - 文生图：走 /images/generations
+  - 图生图：走 /images/edits
+- agnes_image
+  - 文生图与图生图：走 /images/generations
+  - 图像通过 extra_body.image 传递
 
-### D1 config 表配置项（后台管理页配置）
+## 已验证的关键结论
 
-| Key | 说明 | 示例 |
-|-----|------|------|
-| `llm_endpoint` | LLM 端点地址 | `https://api.openai.com/v1` |
-| `llm_api_key` | LLM API Key | `sk-...` |
-| `llm_model` | LLM 模型名 | `gpt-4o` |
-| `image_endpoint` | 生图端点地址 | `https://api.openai.com/v1` |
-| `image_api_key` | 生图 API Key | `sk-...` |
-| `image_model` | 生图模型名 | `gpt-image-2` |
-| `image_provider` | 生图服务商 | `openai_image` / `agnes_image` |
-| `video_endpoint` | 视频端点地址 | `https://apihub.agnes-ai.com` |
-| `video_api_key` | 视频 API Key | `sk-...` |
-| `video_model` | 视频模型名 | `agnes-video-v2.0` |
-| `prompt_system_image` | 关键词生图系统提示词 | 留空用默认 |
-| `prompt_system_video` | 视频生成系统提示词 | 留空用默认 |
-| `prompt_system_polish` | 润色系统提示词 | 留空用默认 |
+以下结论来自线上实测，不是理论推断：
 
-## 🔌 API 端点
+### 1. n: 1 会导致特定上游异常
 
-| 方法 | 路径 | 说明 | 鉴权 |
-|------|------|------|------|
-| POST | `/api/auth/login` | 登录 | ❌ |
-| POST | `/api/auth/register` | 注册 | ❌ |
-| GET | `/api/auth/me` | 当前用户信息 | ✅ |
-| GET | `/api/keywords` | 获取关键词组 | ✅ |
-| POST | `/api/keywords` | 添加关键词 | ✅ |
-| DELETE | `/api/keywords?id=` | 删除关键词 | ✅ |
-| POST | `/api/generate-prompt` | AI 生成提示词 | ✅ |
-| POST | `/api/polish` | AI 润色提示词 | ✅ |
-| POST | `/api/tasks` | 创建生成任务 | ✅ |
-| GET | `/api/tasks?status=` | 获取任务列表 | ✅ |
-| PUT | `/api/tasks` | 重试任务 | ✅ |
-| DELETE | `/api/tasks?id=` | 删除任务 | ✅ |
-| GET | `/api/history` | 获取生成历史 | ✅ |
-| DELETE | `/api/history?id=` | 删除历史记录 | ✅ |
-| GET | `/api/config` | 获取配置（密钥脱敏） | ✅ |
-| PUT | `/api/config` | 更新配置 | ✅ |
-| POST | `/api/models` | 获取可用模型列表 | ✅ |
-| GET | `/api/images?file=` | R2 图片代理 | ❌（公开） |
+对于当前接入的上游：
 
-## 💻 本地开发
+- https://llm.seator.top:8443/v1/images/generations
+- model = gpt-image-2
 
-```bash
-# 安装依赖
-npm install
+直接测试结果：
 
-# Next.js 开发模式（前端热更新，API 需单独启动）
-npm run dev
+- { model, prompt, size } -> 正常 200
+- { model, prompt, size, n: 1 } -> 会触发 504
 
-# Cloudflare Pages 本地模拟（含 D1 + R2）
-npm run pages:dev
+因此项目已移除残留的 n: 1 字段。
 
-# 构建生产版本
-npm run build
-```
+### 2. 某些 504 不是“前端没发出去”
 
-## ⚠️ 注意事项
+多次排查后确认：
 
-### Cloudflare 平台限制
+- 很多失败任务已经成功写入 tasks
+- 也被消费者实际处理到了
+- 失败发生在消费者向外部模型发请求时
 
-- **Workers 执行时间** — Pages Functions 有 30 秒 wall time 限制（fetch 等待不计入 CPU 时间）。生图 API 调用通常 30-40 秒，在限制内但接近边界。如果频繁超时，考虑使用响应更快的模型或降低图片尺寸。
-- **不支持后台异步** — CF Workers 运行时在响应返回后会终止所有 I/O。不能使用 fire-and-forget 模式，任务必须在请求生命周期内同步完成。
-- **D1 写入限制** — 免费版有写入频率限制，高并发场景需注意。
+所以 504 需要区分：
 
-### 图生图特殊处理
+- 前端没有提交
+- 任务没有入队
+- 队列没有消费
+- 消费阶段请求上游失败
 
-- 参考图上传后先存入 R2，生成公开 URL 再传给图片 API，避免大数据 base64 传输超时。
-- 图片 API 需要能从公网访问 `/api/images?file=refs/xxx.png` 来回拉参考图。
-- `openai_image` provider 使用 `/images/edits` 端点；`agnes_image` provider 使用 `/images/generations` + `extra_body.image`。
+它们不是一回事。
 
-### 安全
+### 3. 同样参数在不同网络路径上表现不同
 
-- **不要将 API Key 写入代码或 wrangler.toml** — 通过后台管理页的配置功能写入 D1 config 表。
-- **JWT_SECRET 必须设置** — 使用随机字符串，不要用默认值。
-- **生产环境关闭注册** — 设置 `ENABLE_REGISTRATION = "false"`。
+已经验证过：
 
-### API 兼容性
+- 从服务器 192.168.100.6 直接并发请求模型接口，有时可 2 路都成功
+- 从 Cloudflare Worker / Queue consumer 发起的同类请求，仍可能出现部分 504
 
-- 支持任何 OpenAI 兼容的 API 端点（包括 LibreChat、one-api 等代理）。
-- 端点地址不需要包含 `/v1` 后缀，系统会自动补全。
-- 视频生成适配 Agnes AI API 格式。
+这说明当前问题不完全是模型参数问题，也和 Cloudflare 到上游的执行链路有关。
 
-## ❓ 常见问题
+## 当前已知问题
 
-### Q: 登录后刷新页面会闪烁未登录状态？
+以下问题在项目现阶段仍需继续优化：
 
-A: 这是由于前端在认证检查完成前渲染了已登录内容。当前版本已修复：未登录时只显示欢迎页，认证完成后才渲染主界面。
+### 1. Cloudflare -> 图像上游链路偶发 504
 
-### Q: 生图报 504 超时？
+现象：
 
-A: 图片生成 API 响应时间超过 30 秒时会触发 Cloudflare 超时。解决方案：
-1. 换用响应更快的模型（如 `agnes-image-2.1-flash`）
-2. 降低输出尺寸（如 `512x512`）
-3. 如果使用代理端点，检查代理是否有自己的超时设置
+- 某些任务 completed
+- 某些任务在相近时间内 failed
+- 失败错误为 生图失败(504): error code: 504
 
-### Q: 图生图生成的图片与参考图无关？
+当前状态：
 
-A: 检查 `image_provider` 配置：
-- `openai_image` → 使用 `/images/edits` 端点，参考图放在 `image` 字段
-- `agnes_image` → 使用 `/images/generations` + `extra_body.image`
-- 参考图必须能被图片 API 从公网访问（通过 R2 公开 URL）
+- 已排除一部分坏参数问题（如 n: 1）
+- 已从单队列改为双队列分流
+- 仍存在 Cloudflare 侧偶发失败，需要继续收敛
 
-### Q: 图片显示为空白？
+### 2. 前端“排队中 / 处理中”显示可能滞后于真实状态
 
-A: 检查：
-1. R2 存储桶是否正确绑定（`IMAGES_BUCKET`）
-2. `/api/images?file=xxx.png` 是否返回 200（图片路径在 DB 中为 `/api/images?file=xxx.png` 格式）
-3. D1 数据库字段映射是否正确（DB 是 snake_case，前端用 camelCase，API 层已做转换）
+因为前端依赖轮询与本地临时任务替换，某些瞬时状态可能显示得不够及时。
 
-### Q: 关键词生成的提示词总是三段式（远景/中景/近景）？
+当前已经做过：
 
-A: 这是系统提示词的设定。进入后台管理 → 提示词设定，修改 `prompt_system_image` 配置项。留空则使用默认值（已改为不强制分段）。
+- 修正移动端任务文案
+- 修正批次消费时的状态替换逻辑
 
-### Q: 如何修改管理员密码？
+但若继续优化，可以考虑更细的状态事件或更高频轮询。
 
-A: 通过 wrangler 命令行：
-```bash
-node -e "const bcrypt = require('bcryptjs'); console.log(bcrypt.hashSync('new_password', 10));"
-npx wrangler d1 execute txt2img-db --remote --command \
-  "UPDATE users SET password_hash = '<new_hash>' WHERE username = 'admin';"
-```
+### 3. generate-image.ts 与主任务链必须保持一致
 
-### Q: 如何开启/关闭注册？
+仓库里存在两条生图调用路径：
 
-A: 修改 `wrangler.toml` 中的 `ENABLE_REGISTRATION` 变量，或通过 Cloudflare Dashboard 的环境变量设置。
+- functions/task-processing.ts：主任务链
+- functions/api/generate-image.ts：独立接口
 
-### Q: 部署后 API 返回 500？
+如果两边请求体不一致，就可能出现“一个地方能生成，另一个地方 504”的问题。当前 README 特别提醒这一点，是为了避免后续再次引入漂移。
 
-A: 检查：
-1. D1 数据库是否已执行 migration（`0000_init.sql`）
-2. R2 存储桶是否已创建并绑定
-3. 后台管理页是否已配置 LLM/图像/视频端点和 API Key
-4. 管理员账号是否已创建
+## 观察与日志
 
-## 📜 License
+当前 queue consumer 已启用 observability，并加入结构化日志：
 
-MIT
+- batch-start
+- task-start
+- task-finish
+- task-error
+- batch-finish
+- task.request
+- task.completed
+- task.failed
 
-## 🙏 致谢
+这样后续定位单个任务号时，可以更快区分：
 
-- 原始项目 [wooxi/text-to-image](https://github.com/wooxi/text-to-image) — 基于 Next.js + SQLite 的本地版
-- [Cloudflare Pages](https://pages.cloudflare.com/) — 静态托管 + Edge Functions
-- [Next.js](https://nextjs.org/) — React 全栈框架
-- [TailwindCSS](https://tailwindcss.com/) — 原子化 CSS 框架
+- 是否入队
+- 是否被哪个队列消费
+- 是否真正开始请求上游
+- 失败发生在哪一层
 
+## 常见问题
+
+### Q: 为什么 Cloudflare 里会看到两个服务？
+
+A:
+
+- cf-text-to-image 是 Pages 项目，负责前端和 API
+- cf-text-to-image-task-consumer 是 Worker 服务，负责消费队列
+
+它们不是两个网站，而是“一个站点 + 一个后台消费者”。
+
+### Q: 为什么有时会看到临时部署地址？
+
+A:
+
+Cloudflare Pages 每次手动部署都会生成一个临时部署 URL，但正式项目仍然是原来的 cf-text-to-image。临时 URL 只是某次部署产物，不是新的站点。
+
+### Q: 为什么连续点击时按钮文字以前会变化？
+
+A:
+
+这是为了给“任务已提交”的即时反馈。后续已经按体验调整为更稳定的按钮文案，避免连续点击时视觉干扰过强。
+
+### Q: 当前到底是串行还是并行？
+
+A:
+
+当前是：
+
+- 前端：允许连续提交
+- 后端：两条独立队列并行
+- 每条队列内部：串行消费
+
+因此整体上是“2 路并行，但每一路自己排队”。
+
+## 维护建议
+
+如果后续继续沿 Cloudflare 路线优化，建议优先关注：
+
+1. 保持所有图像请求体格式完全一致
+2. 不要随意加 OpenAI 兼容接口未验证过的字段
+3. 每次改动图像请求参数，都做单发与并发各一轮验证
+4. 区分“任务系统成功”和“上游请求成功”两个层面的日志
+5. 不要让 README 与真实架构脱节
+
+## 致谢
+
+- 原始项目：wooxi/text-to-image
+- Cloudflare Pages / Workers / D1 / R2 / Queues
+- Next.js
+- Tailwind CSS
