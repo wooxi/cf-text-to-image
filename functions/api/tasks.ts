@@ -68,19 +68,17 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const taskId = (lastRow as any)?.id as number;
 
     // Process in background via waitUntil - response returns immediately
-    context.waitUntil((async () => {
-      try {
-        if (isVideo) {
-          await processVideo(context.env, taskId, body);
-        } else {
-          await processImage(context.env, taskId, body);
-        }
-      } catch (procErr) {
-        await context.env.DB.prepare(
-          "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
-        ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
+    try {
+      if (isVideo) {
+        await processVideo(context.env, taskId, body);
+      } else {
+        await processImage(context.env, taskId, body);
       }
-    })());
+    } catch (procErr) {
+      await context.env.DB.prepare(
+        "UPDATE tasks SET status = 'failed', error = ?, updated_at = ? WHERE id = ?"
+      ).bind((procErr as Error).message || "处理失败", new Date().toISOString(), taskId).run();
+    }
 
     return Response.json({ success: true, data: { taskId } });
   } catch (e) {
