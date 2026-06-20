@@ -21,9 +21,14 @@ function mapTask(row: any) {
   };
 }
 
+function pickQueue(env: Env, taskId: number) {
+  return taskId % 2 === 0 ? env.TASK_QUEUE_A : env.TASK_QUEUE_B;
+}
+
 async function enqueueTask(env: Env, taskId: number) {
-  if (env.TASK_QUEUE) {
-    await env.TASK_QUEUE.send({ taskId }, { contentType: "json" });
+  const queue = pickQueue(env, taskId);
+  if (queue) {
+    await queue.send({ taskId }, { contentType: "json" });
     return;
   }
   await processTaskById(env, taskId);

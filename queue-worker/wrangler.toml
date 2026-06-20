@@ -16,7 +16,13 @@ enabled = true
 head_sampling_rate = 1
 
 [[queues.consumers]]
-queue = "txt2img-task-queue"
-max_batch_size = 2
-max_batch_timeout = 1
+queue = "txt2img-task-queue-a"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+
+[[queues.consumers]]
+queue = "txt2img-task-queue-b"
+max_batch_size = 1
+max_batch_timeout = 0
 max_retries = 1

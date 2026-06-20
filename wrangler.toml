@@ -12,8 +12,12 @@ binding = "IMAGES_BUCKET"
 bucket_name = "txt2img-images"
 
 [[queues.producers]]
-binding = "TASK_QUEUE"
-queue = "txt2img-task-queue"
+binding = "TASK_QUEUE_A"
+queue = "txt2img-task-queue-a"
+
+[[queues.producers]]
+binding = "TASK_QUEUE_B"
+queue = "txt2img-task-queue-b"
 
 [vars]
 JWT_SECRET = "v1xpyobqemq4nvyblm3ev2irspcilq2a"
