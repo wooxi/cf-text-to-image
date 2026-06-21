@@ -156,6 +156,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     model,
     size,
     isImg2img,
+    requestBody: JSON.stringify(reqBody),
   });
 
   const resp = await fetch(imgUrl, {
@@ -168,6 +169,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     const txt = await resp.text();
     let err = txt;
     try { err = JSON.parse(txt).error?.message || txt; } catch {}
+    logTask("image-api-error", { taskId, status: resp.status, responseBody: txt.substring(0, 1000) });
     throw new Error("生图失败(" + resp.status + "): " + err.substring(0, 200));
   }
 
@@ -211,22 +213,25 @@ async function processVideo(env: Env, taskId: number, body: Record<string, any>)
   const actualPrompt = body.prompt || "";
   if (!actualPrompt.trim()) throw new Error("缺少提示词");
 
-  logTask("video-request", { taskId, endpoint: endpoint + "/videos/generations", model });
+  const videoReqBody = {
+    model,
+    prompt: actualPrompt,
+    width: body.width || 1920,
+    height: body.height || 1080,
+    num_frames: body.num_frames || 121,
+    frame_rate: body.frame_rate || 24,
+  };
+
+  logTask("video-request", { taskId, endpoint: endpoint + "/videos/generations", model, requestBody: JSON.stringify(videoReqBody) });
   const resp = await fetch(endpoint + "/videos/generations", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-    body: JSON.stringify({
-      model,
-      prompt: actualPrompt,
-      width: body.width || 1920,
-      height: body.height || 1080,
-      num_frames: body.num_frames || 121,
-      frame_rate: body.frame_rate || 24,
-    }),
+    body: JSON.stringify(videoReqBody),
   });
 
   if (!resp.ok) {
     const txt = await resp.text();
+    logTask("video-api-error", { taskId, status: resp.status, responseBody: txt.substring(0, 1000) });
     throw new Error("视频生成失败(" + resp.status + "): " + txt.substring(0, 200));
   }
 
