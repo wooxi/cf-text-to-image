@@ -170,7 +170,7 @@
 
 ### 任务队列设计
 
-- **单队列，多并发** — 一个 `txt2img-task-queue`，Worker 端 `max_concurrency = 3`，最多同时处理 3 个任务
+- **单队列，多并发** — 一个 `txt2img-task-queue`，Worker 端 `max_concurrency = 10`，最多同时处理 10 个任务
 - **乐观锁** — 消费时 UPDATE `WHERE status IN ('pending','failed')`，0 rows changed 则跳过，防止重复处理
 - **自动重试** — `max_retries = 1`，失败消息自动重新投递一次
 
@@ -565,7 +565,7 @@ A: 504 有两种情况：
 
 ### Q: 连续点击能同时生成多张图吗？
 
-A: 能。当前 Queue Worker 配置 `max_concurrency = 3`，最多同时处理 3 个任务。超过 3 个的任务在队列中排队等候。
+A: 能。当前 Queue Worker 配置 `max_concurrency = 10`，最多同时处理 10 个任务。超过 10 个的任务在队列中排队等候。
 
 ### Q: 生成提示词和提交生图冲突吗？
 
@@ -611,7 +611,7 @@ A: Cloudflare D1 自带时间点恢复 (Point-in-Time Recovery)。也可通过 `
 |------|------|------|
 | v1 | 请求内同步调模型 API | 受 Pages Function 时限限制，504 频繁 |
 | v2 | 双队列 (A/B) 按 taskId 奇偶分流 | 2 (每条队列串行) |
-| v3 | 单队列 + `max_concurrency = 3` | 3 |
+| v3 | 单队列 + `max_concurrency = 10` | 10 |
 
 当前 v3 方案更简洁：一个 Queue + 一个 Worker + `max_concurrency` 控制并发。
 
