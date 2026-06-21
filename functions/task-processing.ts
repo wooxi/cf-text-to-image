@@ -41,7 +41,7 @@ function parseTaskBody(task: TaskRow): Record<string, any> {
 
 async function markTaskFailed(env: Env, taskId: number, error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "处理失败");
-  logTask("failed", { taskId, error: message.slice(0, 500) });
+  logTask("task:fail", { taskId, error: message.slice(0, 500) });
   await env.DB.prepare(
     "UPDATE tasks SET status = 'failed', error = ?, progress = 0, updated_at = ? WHERE id = ?"
   ).bind(message.slice(0, 500), new Date().toISOString(), taskId).run();
@@ -53,11 +53,11 @@ export async function processTaskById(env: Env, taskId: number): Promise<void> {
   ).bind(taskId).first<TaskRow>();
 
   if (!task) {
-    logTask("missing", { taskId });
+    logTask("task:missing", { taskId });
     return;
   }
   if (task.status === "completed") {
-    logTask("skip-completed", { taskId });
+    logTask("task:skip-done", { taskId });
     return;
   }
 
@@ -67,12 +67,12 @@ export async function processTaskById(env: Env, taskId: number): Promise<void> {
 
   if ((lock.meta?.changes || 0) === 0) {
     const latest = await env.DB.prepare("SELECT status FROM tasks WHERE id = ?").bind(taskId).first<{ status: string }>();
-    logTask("lock-skipped", { taskId, status: latest?.status || "missing" });
+    logTask("task:lock-skip", { taskId, status: latest?.status || "missing" });
     if (!latest || latest.status === "completed" || latest.status === "processing") return;
   }
 
   const body = parseTaskBody(task);
-  logTask("start", {
+  logTask("task:start", {
     taskId,
     type: body.type || task.type,
     size: body.size || task.size,
@@ -149,7 +149,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     }
   }
 
-  logTask("request", {
+  logTask("→ image-req", {
     taskId,
     endpoint: imgUrl,
     provider: imageProvider,
@@ -169,7 +169,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
     const txt = await resp.text();
     let err = txt;
     try { err = JSON.parse(txt).error?.message || txt; } catch {}
-    logTask("image-api-error", { taskId, status: resp.status, responseBody: txt.substring(0, 1000) });
+    logTask("← image-err", { taskId, status: resp.status, responseBody: txt.substring(0, 1000) });
     throw new Error("生图失败(" + resp.status + "): " + err.substring(0, 200));
   }
 
@@ -199,7 +199,7 @@ async function processImage(env: Env, taskId: number, body: Record<string, any>)
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, error = '', updated_at = ? WHERE id = ?"
   ).bind(imagePath, new Date().toISOString(), taskId).run();
-  logTask("completed", { taskId, imagePath });
+  logTask("← image-ok", { taskId, imagePath });
 }
 
 async function processVideo(env: Env, taskId: number, body: Record<string, any>) {
@@ -222,7 +222,7 @@ async function processVideo(env: Env, taskId: number, body: Record<string, any>)
     frame_rate: body.frame_rate || 24,
   };
 
-  logTask("video-request", { taskId, endpoint: endpoint + "/videos/generations", model, requestBody: JSON.stringify(videoReqBody) });
+  logTask("→ video-req", { taskId, endpoint: endpoint + "/videos/generations", model, requestBody: JSON.stringify(videoReqBody) });
   const resp = await fetch(endpoint + "/videos/generations", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
@@ -231,7 +231,7 @@ async function processVideo(env: Env, taskId: number, body: Record<string, any>)
 
   if (!resp.ok) {
     const txt = await resp.text();
-    logTask("video-api-error", { taskId, status: resp.status, responseBody: txt.substring(0, 1000) });
+    logTask("← video-err", { taskId, status: resp.status, responseBody: txt.substring(0, 1000) });
     throw new Error("视频生成失败(" + resp.status + "): " + txt.substring(0, 200));
   }
 
@@ -246,5 +246,5 @@ async function processVideo(env: Env, taskId: number, body: Record<string, any>)
   await env.DB.prepare(
     "UPDATE tasks SET status = 'completed', image_path = ?, poster_path = ?, progress = 100, error = '', updated_at = ? WHERE id = ?"
   ).bind(videoUrl, posterUrl, new Date().toISOString(), taskId).run();
-  logTask("video-completed", { taskId, videoUrl });
+  logTask("← video-ok", { taskId, videoUrl });
 }
