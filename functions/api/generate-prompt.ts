@@ -43,25 +43,35 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const defaultPrompt = isVideo ? DEFAULT_VIDEO_PROMPT : DEFAULT_IMAGE_PROMPT;
     const systemPrompt = await getConfig(context.env, isVideo ? "prompt_system_video" : "prompt_system_image", defaultPrompt);
 
-    const url = endpoint + "/chat/completions";
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请根据以下关键词生成画面描述：${keywordNames}` }], temperature: 0.9, max_tokens: 4096, thinking: { type: "disabled" } }),
-    });
+    const LLM_TIMEOUT_MS = 25000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return Response.json({ success: false, error: `LLM 调用失败 (${response.status}): ${errText.substring(0, 300)}` }, { status: 502 });
+    try {
+      const url = endpoint + "/chat/completions";
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请根据以下关键词生成画面描述：${keywordNames}` }], temperature: 0.9, max_tokens: 4096, thinking: { type: "disabled" } }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        return Response.json({ success: false, error: `LLM 调用失败 (${response.status}): ${errText.substring(0, 300)}` }, { status: 502 });
+      }
+
+      const data = await response.json() as any;
+      const prompt = data.choices?.[0]?.message?.content?.trim();
+      if (!prompt) return Response.json({ success: false, error: "生成结果为空" }, { status: 500 });
+
+      return Response.json({ success: true, data: { prompt } });
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await response.json() as any;
-    const prompt = data.choices?.[0]?.message?.content?.trim();
-    if (!prompt) return Response.json({ success: false, error: "生成结果为空" }, { status: 500 });
-
-    return Response.json({ success: true, data: { prompt } });
   } catch (e) {
     if ((e as Error).message === "Unauthorized") return Response.json({ success: false, error: "未登录" }, { status: 401 });
+    if ((e as Error).name === "AbortError") return Response.json({ success: false, error: "LLM 调用超时，请稍后重试" }, { status: 504 });
     return Response.json({ success: false, error: "Error: " + ((e as Error).message || String(e)) }, { status: 500 });
   }
 }

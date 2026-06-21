@@ -21,12 +21,8 @@ function mapTask(row: any) {
   };
 }
 
-function pickQueue(env: Env, taskId: number) {
-  return taskId % 2 === 0 ? env.TASK_QUEUE_A : env.TASK_QUEUE_B;
-}
-
 async function enqueueTask(env: Env, taskId: number) {
-  const queue = pickQueue(env, taskId);
+  const queue = env.TASK_QUEUE;
   if (queue) {
     await queue.send({ taskId }, { contentType: "json" });
     return;

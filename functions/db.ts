@@ -11,8 +11,7 @@ interface QueueBinding {
 export interface Env {
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
-  TASK_QUEUE_A?: QueueBinding;
-  TASK_QUEUE_B?: QueueBinding;
+  TASK_QUEUE?: QueueBinding;
   ENABLE_REGISTRATION: string;
   JWT_SECRET?: string;
   LLM_ENDPOINT?: string;

@@ -25,22 +25,32 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
     const systemPrompt = await getConfig(context.env, "prompt_system_polish", DEFAULT_POLISH_PROMPT);
 
-    const url = endpoint + "/chat/completions";
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请润色：${text}` }], temperature: 0.9, max_tokens: 4096, thinking: { type: "disabled" } }),
-    });
+    const LLM_TIMEOUT_MS = 25000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
-    if (!response.ok) return Response.json({ success: false, error: `润色失败 (${response.status})` }, { status: 502 });
+    try {
+      const url = endpoint + "/chat/completions";
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: `请润色：${text}` }], temperature: 0.9, max_tokens: 4096, thinking: { type: "disabled" } }),
+        signal: controller.signal,
+      });
 
-    const data = await response.json() as any;
-    const polished = data.choices?.[0]?.message?.content?.trim();
-    if (!polished) return Response.json({ success: false, error: "润色结果为空" }, { status: 500 });
+      if (!response.ok) return Response.json({ success: false, error: `润色失败 (${response.status})` }, { status: 502 });
 
-    return Response.json({ success: true, data: { text: polished } });
+      const data = await response.json() as any;
+      const polished = data.choices?.[0]?.message?.content?.trim();
+      if (!polished) return Response.json({ success: false, error: "润色结果为空" }, { status: 500 });
+
+      return Response.json({ success: true, data: { text: polished } });
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } catch (e) {
     if ((e as Error).message === "Unauthorized") return Response.json({ success: false, error: "未登录" }, { status: 401 });
+    if ((e as Error).name === "AbortError") return Response.json({ success: false, error: "润色超时，请稍后重试" }, { status: 504 });
     return Response.json({ success: false, error: "润色失败" }, { status: 500 });
   }
 }

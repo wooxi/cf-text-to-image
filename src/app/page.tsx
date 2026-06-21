@@ -234,19 +234,31 @@ export default function HomePage() {
         }
         return { name, groupSlug: null, facetSlug: null };
       });
-      const res = await fetch("/api/generate-prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords: structured, mode }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPrompt(data.data.prompt);
-      } else {
-        alert(data.error || "生成失败");
+      const clientTimeoutMs = 30000;
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), clientTimeoutMs);
+      try {
+        const res = await fetch("/api/generate-prompt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keywords: structured, mode }),
+          signal: ctrl.signal,
+        });
+        const data = await res.json();
+        if (data.success) {
+          setPrompt(data.data.prompt);
+        } else {
+          alert(data.error || "生成失败");
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
-    } catch {
-      alert("生成出错");
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        alert("请求超时，请稍后重试");
+      } else {
+        alert("生成出错");
+      }
     } finally {
       setLoading(false);
       setStatusText("");
@@ -401,16 +413,28 @@ export default function HomePage() {
     setLoading(true);
     textActionLock.current = true;
     try {
-      const res = await fetch("/api/polish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: prompt, mode }),
-      });
-      const data = await res.json();
-      if (data.success) setPrompt(data.data.text);
-      else alert(data.error || "润色失败");
-    } catch {
-      alert("润色出错");
+      const clientTimeoutMs = 30000;
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), clientTimeoutMs);
+      try {
+        const res = await fetch("/api/polish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: prompt, mode }),
+          signal: ctrl.signal,
+        });
+        const data = await res.json();
+        if (data.success) setPrompt(data.data.text);
+        else alert(data.error || "润色失败");
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        alert("请求超时，请稍后重试");
+      } else {
+        alert("润色出错");
+      }
     } finally {
       setLoading(false);
       setStatusText("");
