@@ -10,7 +10,7 @@ function normalizeEndpoint(endpoint: string): string {
 
 const DEFAULT_POLISH_PROMPT = `你是一位专业的画面描述优化师。润色中文画面描述：更丰富、更有氛围感、更文学化。纯中文输出，一段话写完，不要机械分段。保持原意，增强画面感和细节描写。`;
 
-const LLM_TIMEOUT_MS = 25_000;
+const LLM_TIMEOUT_MS = 90_000;
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {

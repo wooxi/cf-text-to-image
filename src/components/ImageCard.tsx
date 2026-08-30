@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { ImageRecord } from "@/types";
+import { useToast } from "./Toast";
 import Lightbox from "./Lightbox";
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 function isVideo(path: string) { return /\.(mp4|webm|mov)$/i.test(path); }
 
 export default function ImageCard({ record, onDelete, posterPath, onImageClick }: Props) {
+  const toast = useToast();
   const [showLightbox, setShowLightbox] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -56,7 +58,7 @@ export default function ImageCard({ record, onDelete, posterPath, onImageClick }
       a.download = record.imagePath.split("/").pop() || (video ? "video.mp4" : "image.png");
       a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("下载失败"); }
+    } catch { toast.error("下载失败"); }
   };
 
   const handleCopyPrompt = async (e: React.MouseEvent) => {

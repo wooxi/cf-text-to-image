@@ -300,3 +300,10 @@ button, a, [role="button"] { touch-action: manipulation; }
   animation: fade-in 0.4s ease-out;
 }
 
+
+/* ── Toast ── */
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.toast-slide-in { animation: toast-slide-in 0.25s ease-out both; }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useToast } from "./Toast";
 
 interface Props {
   images: string[];
@@ -14,19 +15,20 @@ interface Props {
 const MAX_FILE_MB = 5;
 
 export default function ImageUploader({ images, onChange, allowUpload = true, allowDataUri = true, hint = "支持多张 JPG、PNG、WebP", maxImages = 3 }: Props) {
+  const toast = useToast();
   const [dragging, setDragging] = useState(false);
   const [url, setUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const addImage = (image: string) => {
-    if (images.length >= maxImages) { alert(`最多 ${maxImages} 张参考图`); return; }
+    if (images.length >= maxImages) { toast.error(`最多 ${maxImages} 张参考图`); return; }
     onChange([...images, image]);
   };
   const removeImage = (image: string) => onChange(images.filter((item) => item !== image));
 
   const handleFile = (file: File) => {
-    if (!file.type.startsWith("image/")) { alert("请选择图片文件"); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) { alert(`图片不能超过 ${MAX_FILE_MB}MB`); return; }
+    if (!file.type.startsWith("image/")) { toast.error("请选择图片文件"); return; }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`图片不能超过 ${MAX_FILE_MB}MB`); return; }
     const reader = new FileReader();
     reader.onload = () => addImage(reader.result as string);
     reader.readAsDataURL(file);
@@ -41,7 +43,7 @@ export default function ImageUploader({ images, onChange, allowUpload = true, al
     const value = url.trim();
     if (!value) return;
     if (!/^https?:\/\//i.test(value) && (!allowDataUri || !value.startsWith("data:image/"))) {
-      alert(allowDataUri ? "请输入公网图片 URL 或 Data URI" : "请输入公网图片 URL");
+      toast.error(allowDataUri ? "请输入公网图片 URL 或 Data URI" : "请输入公网图片 URL");
       return;
     }
     addImage(value);

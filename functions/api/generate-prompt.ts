@@ -24,7 +24,7 @@ const DEFAULT_VIDEO_PROMPT = `你是一位顶尖的视频导演，擅长将关�
 3. 长度控制在 80-300 字之间，一段话写完，不要分段。
 4. 描述要有时间流动感，体现视频的动态特征。`;
 
-const LLM_TIMEOUT_MS = 25_000;
+const LLM_TIMEOUT_MS = 90_000;
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {

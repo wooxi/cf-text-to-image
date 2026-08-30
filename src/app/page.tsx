@@ -10,6 +10,7 @@ import MobileHome from "@/components/MobileHome";
 import LoginModal from "@/components/LoginModal"
 import FullscreenViewer from "@/components/FullscreenViewer";
 import { KeywordFacet, KeywordGroup, ImageRecord } from "@/types";
+import { useToast } from "@/components/Toast";
 
 const SIZE_MAP: [string, string][] = [
   ["9:16", "768x1344"], ["16:9", "1344x768"], ["4:3", "1024x768"],
@@ -88,6 +89,7 @@ interface TaskRecord {
 }
 
 export default function HomePage() {
+  const toast = useToast();
   const [groups, setGroups] = useState<KeywordGroup[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -216,7 +218,7 @@ export default function HomePage() {
     if (textActionLock.current) return;
     const semanticKeywords = getSemanticKeywords(groups, selected);
     if (semanticKeywords.length === 0) {
-      alert("请至少选择一个主体或画面关键词");
+      toast.error("请至少选择一个主体或画面关键词");
       return;
     }
     if (!loggedIn) {
@@ -238,7 +240,7 @@ export default function HomePage() {
         }
         return { name, groupSlug: null, facetSlug: null };
       });
-      const clientTimeoutMs = 30000;
+      const clientTimeoutMs = 95000;
       const ctrl = new AbortController();
       const timeoutId = setTimeout(() => ctrl.abort(), clientTimeoutMs);
       try {
@@ -252,16 +254,16 @@ export default function HomePage() {
         if (data.success) {
           setPrompt(data.data.prompt);
         } else {
-          alert(data.error || "生成失败");
+          toast.error(data.error || "生成失败");
         }
       } finally {
         clearTimeout(timeoutId);
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") {
-        alert("请求超时，请稍后重试");
+        toast.error("请求超时，请稍后重试");
       } else {
-        alert("生成出错");
+        toast.error("生成出错");
       }
     } finally {
       setLoading(false);
@@ -290,11 +292,11 @@ export default function HomePage() {
 
     if (mode === "keywords" || mode === "img2img") {
       if (mode === "keywords" && semanticKeywords.length === 0 && !prompt.trim()) {
-        alert("请至少选择一个关键词或输入提示词");
+        toast.error("请至少选择一个关键词或输入提示词");
         return;
       }
       if (mode === "img2img" && semanticKeywords.length === 0 && !prompt.trim()) {
-        alert("请至少选择关键词或输入编辑指令");
+        toast.error("请至少选择关键词或输入编辑指令");
         return;
       }
       body.keywords = semanticKeywords.join(", ");
@@ -302,7 +304,7 @@ export default function HomePage() {
       if (prompt.trim()) body.prompt = prompt.trim();
     } else if (mode === "video") {
       if (!prompt.trim()) {
-        alert("请输入提示词");
+        toast.error("请输入提示词");
         return;
       }
       body.keywords = prompt.trim();
@@ -311,13 +313,13 @@ export default function HomePage() {
 
     if (mode === "img2img") {
       if (refImages.length === 0) {
-        alert("请至少添加一张参考图");
+        toast.error("请至少添加一张参考图");
         return;
       }
       body.image = refImages;
     } else if (mode === "video" && videoRefImages.length > 0) {
       if (videoMode === "keyframes" && videoRefImages.length < 2) {
-        alert("关键帧动画至少需要两张图片 URL");
+        toast.error("关键帧动画至少需要两张图片 URL");
         return;
       }
       body.image = videoRefImages;
@@ -400,24 +402,24 @@ export default function HomePage() {
         setLiveTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: "pending", progress: 0, error: "" } : t));
         startPolling();
       } else {
-        alert(data.error || "重试失败");
+        toast.error(data.error || "重试失败");
       }
     } catch {
-      alert("重试失败");
+      toast.error("重试失败");
     }
   };
 
   const handlePolish = async () => {
     if (textActionLock.current) return;
     if (!prompt.trim()) {
-      alert("请先输入内容");
+      toast.error("请先输入内容");
       return;
     }
     setStatusText("AI 润色中...");
     setLoading(true);
     textActionLock.current = true;
     try {
-      const clientTimeoutMs = 30000;
+      const clientTimeoutMs = 95000;
       const ctrl = new AbortController();
       const timeoutId = setTimeout(() => ctrl.abort(), clientTimeoutMs);
       try {
@@ -429,15 +431,15 @@ export default function HomePage() {
         });
         const data = await res.json();
         if (data.success) setPrompt(data.data.text);
-        else alert(data.error || "润色失败");
+        else toast.error(data.error || "润色失败");
       } finally {
         clearTimeout(timeoutId);
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") {
-        alert("请求超时，请稍后重试");
+        toast.error("请求超时，请稍后重试");
       } else {
-        alert("润色出错");
+        toast.error("润色出错");
       }
     } finally {
       setLoading(false);
