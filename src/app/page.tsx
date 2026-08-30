@@ -279,7 +279,9 @@ export default function HomePage() {
       return;
     }
 
-    const body: Record<string, unknown> = { type: mode, size: "1024x1024" };
+    // 任务类型映射：关键词导演模式提交为 image 任务
+    const taskType = mode === "keywords" ? "image" : mode;
+    const body: Record<string, unknown> = { type: taskType, size: "1024x1024" };
     const semanticKeywords = getSemanticKeywords(groups, selected);
 
     if (mode === "video") {
