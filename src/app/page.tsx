@@ -499,6 +499,11 @@ export default function HomePage() {
                     style={{"background": "linear-gradient(135deg, var(--accent), var(--accent-hover))", "boxShadow": "0 4px 20px var(--accent-glow)"}}>
                     <span>🔐</span><span>登录开始创作</span><span className="text-xs opacity-80 ml-1">→</span>
                   </button>
+                  <Link href="/admin"
+                    className="flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all duration-300 hover:-translate-y-0.5"
+                    style={{"borderColor": "var(--border)", "color": "var(--text-secondary)", "background": "rgba(255,255,255,0.03)"}}>
+                    <span>⚙️</span><span>后台管理</span>
+                  </Link>
                 </div>
               </div>
             </div>

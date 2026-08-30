@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 /* ─── types ─── */
@@ -378,6 +379,11 @@ export default function AdminPage() {
         {msg && <p className="text-sm mb-4 text-center" style={{ color: "var(--danger)" }}>{msg}</p>}
         <button type="submit" className="w-full rounded-lg py-2.5 text-sm font-medium text-white" style={{ background: "var(--accent)" }}>登录</button>
       </form>
+      <div className="mt-4 text-center">
+        <Link href="/" className="text-sm transition" style={{ color: "var(--text-muted)" }}>
+          ← 返回创作台
+        </Link>
+      </div>
     </div>
   );
 
