@@ -436,6 +436,19 @@ export default function AdminPage() {
             <div>
               <h2 className="text-xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>端点配置</h2>
               <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>配置 LLM、图像、视频三类模型的端点和密钥</p>
+              <form onSubmit={(e) => saveGroup("site", e)} className="rounded-xl border p-5 mb-5" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg text-lg" style={{ background: "var(--accent-light)" }}>🌐</span>
+                  <div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>站点设置</div>
+                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>参考图模式必填：本站点的公网地址，用于把参考图转成上游可访问的 URL</div>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div><label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>公网地址 (public_base_url)</label><input name="public_base_url" type="url" defaultValue={config["public_base_url"] || ""} className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--bg-tertiary)", color: "var(--text-primary)" }} placeholder="https://your-site.pages.dev" /></div>
+                </div>
+                <div className="mt-4"><button type="submit" disabled={saving === "site"} className="rounded-lg px-5 py-2 text-xs font-medium text-white transition-all disabled:opacity-50" style={{ background: "var(--accent)" }}>{saving === "site" ? "保存中..." : "保存"}</button></div>
+              </form>
               <div className="space-y-5">
                 {MODEL_GROUPS.map(g => {
                   const hasKey = (config[g.ak] || "").includes("已设置");

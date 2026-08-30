@@ -8,18 +8,25 @@ interface Props {
   allowUpload?: boolean;
   allowDataUri?: boolean;
   hint?: string;
+  maxImages?: number;
 }
 
-export default function ImageUploader({ images, onChange, allowUpload = true, allowDataUri = true, hint = "支持多张 JPG、PNG、WebP" }: Props) {
+const MAX_FILE_MB = 5;
+
+export default function ImageUploader({ images, onChange, allowUpload = true, allowDataUri = true, hint = "支持多张 JPG、PNG、WebP", maxImages = 3 }: Props) {
   const [dragging, setDragging] = useState(false);
   const [url, setUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const addImage = (image: string) => onChange([...images, image]);
+  const addImage = (image: string) => {
+    if (images.length >= maxImages) { alert(`最多 ${maxImages} 张参考图`); return; }
+    onChange([...images, image]);
+  };
   const removeImage = (image: string) => onChange(images.filter((item) => item !== image));
 
   const handleFile = (file: File) => {
     if (!file.type.startsWith("image/")) { alert("请选择图片文件"); return; }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) { alert(`图片不能超过 ${MAX_FILE_MB}MB`); return; }
     const reader = new FileReader();
     reader.onload = () => addImage(reader.result as string);
     reader.readAsDataURL(file);
@@ -91,7 +98,7 @@ export default function ImageUploader({ images, onChange, allowUpload = true, al
         </button>
       </div>
 
-      {allowUpload && <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />}
+      {allowUpload && <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />}
     </div>
   );
 }

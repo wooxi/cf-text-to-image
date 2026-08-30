@@ -1,4 +1,4 @@
-import { createToken } from "../../auth";
+import { createToken, AUTH_COOKIE, HttpError, isHttpError } from "../../auth";
 import type { Env } from "../../db";
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
@@ -9,29 +9,24 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       return Response.json({ success: false, error: "用户名和密码不能为空" }, { status: 400 });
     }
 
-    const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
-    if (!user) {
-      return Response.json({ success: false, error: "用户名或密码错误" }, { status: 401 });
-    }
+    const user = await env.DB.prepare(
+      "SELECT id, username, password_hash, role FROM users WHERE username = ?"
+    ).bind(username).first<{ id: number; username: string; password_hash: string; role: string }>();
 
-    // bcrypt in Workers: use Web Crypto or a pure-JS lib
-    // For simplicity, use bcryptjs (pure JS, works in Workers)
     const bcrypt = await import("bcryptjs");
-    const valid = bcrypt.compareSync(password, (user as any).password_hash);
-    if (!valid) {
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return Response.json({ success: false, error: "用户名或密码错误" }, { status: 401 });
     }
 
-    const token = await createToken(env, (user as any).id, (user as any).username);
+    const role = user.role === "admin" ? "admin" : "user";
+    const token = await createToken(env, { userId: user.id, username: user.username, role });
 
-    return new Response(JSON.stringify({ success: true, data: { username: (user as any).username } }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`,
-      },
-    });
+    return Response.json(
+      { success: true, data: { username: user.username } },
+      { headers: { "Set-Cookie": AUTH_COOKIE(token) } },
+    );
   } catch (e) {
+    if (isHttpError(e)) return Response.json({ success: false, error: e.message }, { status: e.status });
     return Response.json({ success: false, error: "登录失败" }, { status: 500 });
   }
 }

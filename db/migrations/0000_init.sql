@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
   created_at TEXT NOT NULL
 );
 
@@ -12,7 +13,6 @@ CREATE TABLE IF NOT EXISTS keyword_groups (
   sort_order INTEGER DEFAULT 0,
   slug TEXT NOT NULL UNIQUE,
   description TEXT DEFAULT '',
-  sort_order INTEGER DEFAULT 0,
   is_parameter_group INTEGER DEFAULT 0,
   created_at TEXT NOT NULL
 );
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS keywords (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   group_id INTEGER NOT NULL REFERENCES keyword_groups(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  sort_order INTEGER DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS image_history (
   image_path TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT 'image',
   poster_path TEXT NOT NULL DEFAULT '',
+  size TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -51,7 +53,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   image_path TEXT NOT NULL DEFAULT '',
   reference_image TEXT NOT NULL DEFAULT '',
   video_path TEXT NOT NULL DEFAULT '',
-  video_id TEXT NOT NULL DEFAULT '',
   poster_path TEXT NOT NULL DEFAULT '',
   progress INTEGER NOT NULL DEFAULT 0,
   size TEXT NOT NULL DEFAULT '1024x1024',
@@ -60,5 +61,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TEXT NOT NULL
 );
 
--- Add sort_order for keyword reordering
-ALTER TABLE keywords ADD COLUMN sort_order INTEGER DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_history_created ON image_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_keywords_group ON keywords(group_id, sort_order);

@@ -16,5 +16,5 @@ binding = "TASK_QUEUE"
 queue = "txt2img-task-queue"
 
 [vars]
-JWT_SECRET = "v1xpyobqemq4nvyblm3ev2irspcilq2a"
-ENABLE_REGISTRATION = "true"
+# JWT_SECRET / ENABLE_REGISTRATION 通过 `wrangler pages secret put` 管理，不写入仓库
+ENABLE_REGISTRATION = "false"

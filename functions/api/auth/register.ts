@@ -1,4 +1,4 @@
-import { createToken } from "../../auth";
+import { createToken, AUTH_COOKIE, isHttpError } from "../../auth";
 import type { Env } from "../../db";
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
@@ -11,33 +11,37 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (!username || !password) {
       return Response.json({ success: false, error: "用户名和密码不能为空" }, { status: 400 });
     }
-    if (username.length < 2 || password.length < 4) {
-      return Response.json({ success: false, error: "用户名至少2位，密码至少4位" }, { status: 400 });
-    }
-
-    const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
-    if (existing) {
-      return Response.json({ success: false, error: "用户名已存在" }, { status: 409 });
+    if (username.length < 2 || username.length > 32 || password.length < 8) {
+      return Response.json({ success: false, error: "用户名 2-32 位，密码至少 8 位" }, { status: 400 });
     }
 
     const bcrypt = await import("bcryptjs");
     const hash = bcrypt.hashSync(password, 10);
-    const now = new Date().toISOString();
 
-    const result = await env.DB.prepare(
-      "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)"
-    ).bind(username, hash, now).run();
+    try {
+      const result = await env.DB.prepare(
+        "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'user', ?)"
+      ).bind(username, hash, new Date().toISOString()).run();
 
-    const token = await createToken(env, result.meta.last_row_id as number, username);
+      const token = await createToken(env, {
+        userId: result.meta.last_row_id as number,
+        username,
+        role: "user",
+      });
 
-    return new Response(JSON.stringify({ success: true, data: { username } }), {
-      status: 201,
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`,
-      },
-    });
+      return Response.json(
+        { success: true, data: { username } },
+        { status: 201, headers: { "Set-Cookie": AUTH_COOKIE(token) } },
+      );
+    } catch (e: any) {
+      // UNIQUE constraint violation
+      if (String(e?.message || "").includes("UNIQUE")) {
+        return Response.json({ success: false, error: "用户名已存在" }, { status: 409 });
+      }
+      throw e;
+    }
   } catch (e) {
+    if (isHttpError(e)) return Response.json({ success: false, error: e.message }, { status: e.status });
     return Response.json({ success: false, error: "注册失败" }, { status: 500 });
   }
 }

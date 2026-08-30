@@ -136,23 +136,27 @@ export default function HomePage() {
 
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
-    let emptyCount = 0;
+    let prevActive = -1;
     pollingRef.current = setInterval(async () => {
       try {
         const res = await fetch("/api/tasks?status=pending,processing,failed");
+        if (res.status === 401) {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+          setLoggedIn(false);
+          setShowLogin(true);
+          return;
+        }
         const data = await res.json();
         if (data.success) {
           setLiveTasks(data.data);
           const active = data.data.filter((t: TaskRecord) => t.status === "pending" || t.status === "processing");
-          fetchHistory();
+          // 仅在任务完成/失败（活跃数下降）时刷新历史，避免每轮轮询都打一次 D1
+          if (prevActive > active.length) fetchHistory();
+          prevActive = active.length;
           if (active.length === 0) {
-            emptyCount++;
-            if (emptyCount >= 1 && pollingRef.current) {
-              clearInterval(pollingRef.current);
-              pollingRef.current = null;
-            }
-          } else {
-            emptyCount = 0;
+            clearInterval(pollingRef.current!);
+            pollingRef.current = null;
           }
         }
       } catch {}

@@ -1,29 +1,39 @@
-import { requireAuth } from "../auth";
-import { getApiKey } from "../db";
+import { requireAdmin, HttpError, isHttpError } from "../auth";
+import { getConfigs } from "../db";
 import type { Env } from "../db";
 
 function normalizeEndpoint(endpoint: string): string {
   let url = endpoint.replace(/\/+$/, "");
-  if (!/\/\/[^\/]+\/.+/.test(url)) url += "/v1";
+  if (!/\/\/[^/]+\/.+/.test(url)) url += "/v1";
   return url;
 }
 
+const TIMEOUT_MS = 15_000;
+
 export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
-    await requireAuth(context.env, context.request);
+    await requireAdmin(context.env, context.request);
     const body = await context.request.json() as { endpoint?: string };
     const rawEndpoint = (body.endpoint || "").trim();
-    if (!rawEndpoint) return Response.json({ success: false, error: "请提供端点地址" }, { status: 400 });
+    if (!rawEndpoint) throw new HttpError(400, "请提供端点地址");
 
+    const config = await getConfigs(context.env);
     const endpoint = normalizeEndpoint(rawEndpoint);
-    const apiKey = await getApiKey(context.env, "llm_api_key");
     const headers: Record<string, string> = {};
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    if (config.llm_api_key) headers["Authorization"] = `Bearer ${config.llm_api_key}`;
 
-    const resp = await fetch(endpoint + "/models", { headers });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let resp: Response;
+    try {
+      resp = await fetch(endpoint + "/models", { headers, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
-      return Response.json({ success: false, error: `获取模型列表失败 (${resp.status}): ${txt.substring(0, 200)}` }, { status: 502 });
+      return Response.json({ success: false, error: `获取模型列表失败 (${resp.status}): ${txt.slice(0, 200)}` }, { status: 502 });
     }
 
     const data = await resp.json() as any;
@@ -32,13 +42,11 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       .filter((id: string) => id && !id.includes("dall-e") && !id.includes("whisper") && !id.includes("tts"))
       .sort();
 
-    if (!models.length) return Response.json({ success: false, error: "该端点未返回可用模型" }, { status: 404 });
-
+    if (!models.length) return Response.json({ success: false, error: "该端点未返回可用模型" }, { status: 502 });
     return Response.json({ success: true, data: models });
   } catch (e) {
-    if ((e as Error).message === "Unauthorized") {
-      return Response.json({ success: false, error: "未登录" }, { status: 401 });
-    }
+    if (isHttpError(e)) return Response.json({ success: false, error: e.message }, { status: e.status });
+    if ((e as Error).name === "AbortError") return Response.json({ success: false, error: "请求超时" }, { status: 504 });
     return Response.json({ success: false, error: `请求失败: ${(e as Error).message}` }, { status: 500 });
   }
 }
