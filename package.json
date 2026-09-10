@@ -1,19 +1,26 @@
 {
   "name": "cf-text-to-image",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.test.json",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "pages:dev": "wrangler pages dev out",
-    "pages:deploy": "wrangler pages deploy out --branch=master",
-    "db:migrate:local": "for f in ./db/migrations/*.sql; do wrangler d1 execute txt2img-db --local -y --file=\"$f\"; done",
-    "db:migrate:remote": "for f in ./db/migrations/*.sql; do wrangler d1 execute txt2img-db --remote -y --file=\"$f\"; done"
+    "pages:deploy": "wrangler pages deploy out --project-name=cf-text-to-image --branch=master",
+    "worker:deploy": "wrangler deploy --config queue-worker/wrangler.toml",
+    "db:migrate:local": "for f in ./db/migrations/*.sql; do wrangler d1 execute txt2img-db --local -y --file=\"$f\" || exit 1; done",
+    "db:migrate:remote": "for f in ./db/migrations/*.sql; do wrangler d1 execute txt2img-db --remote -y --file=\"$f\" || exit 1; done"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
     "jose": "^5.9.0",
-    "next": "^14.2.0",
+    "next": "^14.2.35",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },
@@ -23,9 +30,12 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.35",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.0",
+    "vitest": "^2.1.9",
     "wrangler": "^4.0.0"
   }
 }

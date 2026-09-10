@@ -1,73 +1,56 @@
-import { getConfigs } from "./db";
-import type { Env } from "./db";
+import { getImageSettings } from "./lib/env";
+import type { Env } from "./lib/env";
+import { normalizeEndpoint } from "./lib/endpoints";
+import { extForContentType, IMAGE_PREFIX, REF_PREFIX } from "./lib/media";
 
+/** 上游模型 API 返回的业务错误：任务落库为 failed，不触发队列重投。 */
+export class ModelApiError extends Error {}
+
+const IMAGE_TIMEOUT_MS = 180_000;
+/** 超过此时长仍是 processing 的任务视为卡死，由每日定时任务收尸。 */
+const STALE_PROCESSING_MS = 30 * 60 * 1000;
+const REF_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 任务参数全部来自 tasks 表的列，没有第二份 JSON 快照需要同步。 */
 interface TaskRow {
   id: number;
   status: string;
   type: string;
-  keyword_names: string;
   prompt: string;
+  keyword_names: string;
   size: string;
   reference_image: string;
-  request_json: string;
-}
-
-/** 上游模型 API 返回的错误：任务标记 failed，不触发队列重试。 */
-export class ModelApiError extends Error {}
-
-const IMAGE_TIMEOUT_MS = 180_000;
-const VIDEO_TIMEOUT_MS = 900_000;
-
-export function normalizeEndpoint(endpoint: string): string {
-  let url = endpoint.replace(/\/+$/, "");
-  if (!/\/\/[^/]+\/.+/.test(url)) url += "/v1";
-  return url;
 }
 
 function logTask(event: string, payload: Record<string, unknown>) {
   console.log(JSON.stringify({ scope: "task", event, ...payload }));
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function parseTaskBody(task: TaskRow): Record<string, any> {
-  if (task.request_json) {
-    return JSON.parse(task.request_json);
-  }
-  // request_json 上线前的历史任务，从列重建
-  return {
-    type: task.type,
-    keywords: task.keyword_names,
-    prompt: task.prompt,
-    size: task.size,
-    image: task.reference_image ? task.reference_image.split(",").filter(Boolean) : [],
-  };
-}
-
-async function markTaskFailed(env: Env, taskId: number, error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  logTask("task:fail", { taskId, error: message.slice(0, 500) });
+async function markFailed(env: Env, taskId: number, error: unknown) {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).slice(0, 500);
+  logTask("task:fail", { taskId, error: message });
   await env.DB.prepare(
-    "UPDATE tasks SET status = 'failed', error = ?, progress = 0, updated_at = ? WHERE id = ?"
-  ).bind(message.slice(0, 500), new Date().toISOString(), taskId).run();
+    "UPDATE tasks SET status = 'failed', error = ?, progress = 0, updated_at = ? WHERE id = ?",
+  )
+    .bind(message, new Date().toISOString(), taskId)
+    .run();
 }
 
 /**
- * 处理一个任务。返回 true 表示任务已到达终态（completed/failed/skip）；
- * 抛出异常表示发生了基础设施错误，由调用方决定是否重投队列。
+ * 处理一个任务。返回 true 表示已到终态（completed / failed / 跳过）；
+ * 抛异常表示基础设施故障，由队列消费者决定是否重投。
  */
-export async function processTaskById(env: Env, taskId: number): Promise<boolean> {
+export async function processTaskById(
+  env: Env,
+  taskId: number,
+): Promise<boolean> {
   const task = await env.DB.prepare(
-    "SELECT id, status, type, keyword_names, prompt, size, reference_image, request_json FROM tasks WHERE id = ?"
-  ).bind(taskId).first<TaskRow>();
+    "SELECT id, status, type, prompt, keyword_names, size, reference_image FROM tasks WHERE id = ?",
+  )
+    .bind(taskId)
+    .first<TaskRow>();
 
   if (!task) {
     logTask("task:missing", { taskId });
@@ -78,190 +61,224 @@ export async function processTaskById(env: Env, taskId: number): Promise<boolean
     return true;
   }
 
-  // 乐观锁：仅 pending/failed 可被抢到，防止重复消费
-  const lock = await env.DB.prepare(
-    "UPDATE tasks SET status = 'processing', progress = 5, error = '', updated_at = ? WHERE id = ? AND status IN ('pending', 'failed')"
-  ).bind(new Date().toISOString(), taskId).run();
-  if ((lock.meta.changes || 0) === 0) {
+  // 乐观锁：只有仍处于 pending/failed 的那一次调用能抢到，防止重复消费
+  const locked = await env.DB.prepare(
+    "UPDATE tasks SET status = 'processing', progress = 10, error = '', updated_at = ? " +
+      "WHERE id = ? AND status IN ('pending', 'failed')",
+  )
+    .bind(new Date().toISOString(), taskId)
+    .run();
+  if (!locked.meta.changes) {
     logTask("task:lock-skip", { taskId });
     return true;
   }
 
-  const body = parseTaskBody(task);
-  logTask("task:start", { taskId, type: body.type || task.type });
-
   try {
-    if (body.type === "video") {
-      await processVideo(env, taskId, body);
-    } else {
-      await processImage(env, taskId, body);
-    }
+    logTask("task:start", { taskId, type: task.type });
+    await processImage(env, taskId, task);
     return true;
   } catch (error) {
-    // 上游模型错误是预期失败，落库即可；其余（DB/存储/网络异常）向上抛，交给队列重试
-    if (error instanceof ModelApiError) {
-      await markTaskFailed(env, taskId, error);
-      return true;
-    }
-    await markTaskFailed(env, taskId, error);
+    // 上游错误是预期失败，落库即可；其余（D1/R2/网络）交给队列重投
+    await markFailed(env, taskId, error);
+    if (error instanceof ModelApiError) return true;
     throw error;
   }
 }
 
-async function processImage(env: Env, taskId: number, body: Record<string, any>) {
-  const config = await getConfigs(env);
-  const endpoint = normalizeEndpoint(config.image_endpoint || config.llm_endpoint || "https://api.openai.com/v1");
-  const apiKey = config.image_api_key || config.llm_api_key;
-  const model = config.image_model || "dall-e-3";
-  const imageProvider = config.image_provider || "openai_image";
-  const publicBaseUrl = config.public_base_url;
-  const size = body.size || "1024x1024";
-
-  if (!apiKey) throw new ModelApiError("请先在后台设置 image_api_key");
-
-  const actualPrompt = (body.prompt || body.keywords || "").trim();
-  if (!actualPrompt) throw new ModelApiError("缺少提示词");
-
-  const isImg2img = body.type === "img2img" && Array.isArray(body.image) && body.image.length > 0;
-  const qualitySuffix = ", natural body proportions, clearly defined limbs uncrossed, professional photography, highly detailed, masterpiece, sharp focus";
-  const img2imgPrefix = isImg2img
-    ? "Using the reference image as the base, make the following edits while preserving the subject's identity, pose, and composition: "
-    : "";
-  const finalPrompt = img2imgPrefix + actualPrompt + qualitySuffix;
-
-  const imgUrl = endpoint + (isImg2img && imageProvider !== "agnes_image" ? "/images/edits" : "/images/generations");
-  const reqBody: Record<string, any> = imageProvider === "agnes_image"
-    ? { model, prompt: finalPrompt, size, extra_body: { response_format: "url" } }
-    : { model, prompt: finalPrompt, size };
-
-  if (isImg2img) {
-    if (!publicBaseUrl) {
-      throw new ModelApiError("参考图模式需要在后台设置 public_base_url（本站点的公网地址）");
-    }
-    const images = await Promise.all(body.image.map((img: string) => storeReferenceImage(env, img, publicBaseUrl)));
-    if (imageProvider === "agnes_image") {
-      reqBody.extra_body.image = images.length === 1 ? images[0] : images;
-    } else {
-      reqBody.image = images.length === 1 ? images[0] : images;
-    }
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
-
-  logTask("→ image-req", { taskId, endpoint: imgUrl, provider: imageProvider, model, size, isImg2img });
-
-  const resp = await fetchWithTimeout(imgUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-    body: JSON.stringify(reqBody),
-  }, IMAGE_TIMEOUT_MS);
-
-  if (!resp.ok) {
-    const txt = await resp.text();
-    logTask("← image-err", { taskId, status: resp.status, responseBody: txt.slice(0, 1000) });
-    let message = txt;
-    try { message = JSON.parse(txt).error?.message || txt; } catch {}
-    throw new ModelApiError(`生图失败(${resp.status}): ${message.slice(0, 200)}`);
-  }
-
-  const data = await resp.json() as any;
-  const img = data.data?.[0];
-  if (!img) throw new ModelApiError("生图返回为空");
-
-  let bytes: ArrayBuffer;
-  if (img.b64_json) {
-    bytes = Uint8Array.from(atob(img.b64_json), (c) => c.charCodeAt(0)).buffer;
-  } else if (img.url) {
-    bytes = await (await fetchWithTimeout(img.url, {}, IMAGE_TIMEOUT_MS)).arrayBuffer();
-  } else {
-    throw new ModelApiError("生图返回格式不支持（缺少 b64_json / url）");
-  }
-
-  const filename = crypto.randomUUID() + ".png";
-  await env.IMAGES_BUCKET.put("images/" + filename, bytes, { httpMetadata: { contentType: "image/png" } });
-  const imagePath = "/api/images?file=" + filename;
-
-  await env.DB.batch([
-    env.DB.prepare(
-      "INSERT INTO image_history (keyword_names, prompt, image_path, type, created_at, size) VALUES (?, ?, ?, 'image', ?, ?)"
-    ).bind(body.keywords || "", actualPrompt, imagePath, new Date().toISOString(), size),
-    env.DB.prepare(
-      "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, error = '', updated_at = ? WHERE id = ? AND status = 'processing'"
-    ).bind(imagePath, new Date().toISOString(), taskId),
-  ]);
-  logTask("← image-ok", { taskId, imagePath });
 }
 
-/** 参考图统一存入 R2，向上游返回公网 URL。 */
-async function storeReferenceImage(env: Env, img: string, publicBaseUrl: string): Promise<string> {
-  if (!img.startsWith("data:image/")) return img; // 已经是公网 URL
-
-  const match = img.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
-  if (!match) throw new ModelApiError("参考图 Data URI 格式不正确");
-
-  const contentType = match[1];
-  const ext = contentType.split("/")[1] || "png";
-  const binary = atob(match[2]);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-  const filename = crypto.randomUUID() + "." + ext;
-  await env.IMAGES_BUCKET.put("images/" + filename, bytes.buffer, { httpMetadata: { contentType } });
-  return publicBaseUrl.replace(/\/+$/, "") + "/api/images?file=" + filename;
-}
-
-async function processVideo(env: Env, taskId: number, body: Record<string, any>) {
-  const config = await getConfigs(env);
-  const endpoint = normalizeEndpoint(config.video_endpoint || "https://apihub.agnes-ai.com");
-  const apiKey = config.video_api_key;
-  const model = config.video_model || "agnes-video-v2.0";
-
-  if (!apiKey) throw new ModelApiError("请先在后台设置 video_api_key");
-
-  const actualPrompt = (body.prompt || "").trim();
-  if (!actualPrompt) throw new ModelApiError("缺少提示词");
-
-  const reqBody: Record<string, any> = {
-    model,
-    prompt: actualPrompt,
-    width: body.width || 1920,
-    height: body.height || 1080,
-    num_frames: body.num_frames || 121,
-    frame_rate: body.frame_rate || 24,
+async function readReference(
+  env: Env,
+  key: string,
+): Promise<{ body: ArrayBuffer; contentType: string }> {
+  const object = await env.IMAGES_BUCKET.get(key);
+  if (!object) throw new ModelApiError("参考图已丢失，请重新提交");
+  return {
+    body: await object.arrayBuffer(),
+    contentType: object.httpMetadata?.contentType || "image/png",
   };
-  // 参考图/关键帧模式：把参考图（R2 公网 URL）传给上游
-  if (Array.isArray(body.image) && body.image.length > 0) {
-    if (!config.public_base_url) {
-      throw new ModelApiError("参考图模式需要在后台设置 public_base_url（本站点的公网地址）");
-    }
-    const images = await Promise.all(body.image.map((img: string) => storeReferenceImage(env, img, config.public_base_url)));
-    reqBody.image = images.length === 1 ? images[0] : images;
+}
+
+async function processImage(env: Env, taskId: number, task: TaskRow) {
+  const settings = getImageSettings(env);
+  const isImg2img = task.type === "img2img";
+  const referenceKeys = task.reference_image
+    ? task.reference_image.split(",")
+    : [];
+
+  const actualPrompt = (task.prompt || task.keyword_names || "").trim();
+  if (!actualPrompt) throw new ModelApiError("缺少提示词");
+
+  const endpoint = normalizeEndpoint(settings.endpoint);
+  const url = endpoint + (isImg2img ? "/images/edits" : "/images/generations");
+  const headers = { Authorization: "Bearer " + settings.apiKey };
+
+  let init: RequestInit;
+  if (isImg2img) {
+    // /images/edits 要求 multipart/form-data + 二进制文件，不是 JSON body
+    const form = new FormData();
+    form.append("model", settings.model);
+    form.append("prompt", img2imgPrompt(actualPrompt));
+    form.append("size", task.size);
+    const refs = await Promise.all(
+      referenceKeys.map((key) => readReference(env, key)),
+    );
+    refs.forEach((ref, index) => {
+      const ext = extForContentType(ref.contentType) ?? "png";
+      form.append(
+        refs.length === 1 ? "image" : "image[]",
+        new Blob([ref.body], { type: ref.contentType }),
+        `ref-${index}.${ext}`,
+      );
+    });
+    init = { method: "POST", headers, body: form };
+  } else {
+    init = {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: settings.model,
+        prompt: actualPrompt + QUALITY_SUFFIX,
+        size: task.size,
+      }),
+    };
   }
 
-  logTask("→ video-req", { taskId, endpoint: endpoint + "/videos/generations", model });
+  logTask("image-req", {
+    taskId,
+    endpoint: url,
+    model: settings.model,
+    size: task.size,
+    isImg2img,
+  });
 
-  const resp = await fetchWithTimeout(endpoint + "/videos/generations", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-    body: JSON.stringify(reqBody),
-  }, VIDEO_TIMEOUT_MS);
-
-  if (!resp.ok) {
-    const txt = await resp.text();
-    logTask("← video-err", { taskId, status: resp.status, responseBody: txt.slice(0, 1000) });
-    throw new ModelApiError(`视频生成失败(${resp.status}): ${txt.slice(0, 200)}`);
+  const response = await fetchWithTimeout(url, init, IMAGE_TIMEOUT_MS);
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 1000);
+    logTask("image-err", {
+      taskId,
+      status: response.status,
+      responseBody: detail,
+    });
+    throw new ModelApiError(
+      `生图失败(${response.status}): ${extractMessage(detail).slice(0, 200)}`,
+    );
   }
 
-  const data = await resp.json() as any;
-  const videoUrl = data.url || data.video_url || "";
-  if (!videoUrl) throw new ModelApiError("视频生成返回缺少 url 字段");
-  const posterUrl = data.poster || data.thumbnail || "";
+  const data = (await response.json()) as {
+    data?: { b64_json?: string; url?: string }[];
+  };
+  const image = data.data?.[0];
+  if (!image) throw new ModelApiError("生图返回为空");
 
+  const { bytes, contentType } = await readResult(image);
+  const filename = `${crypto.randomUUID()}.${extForContentType(contentType) ?? "png"}`;
+  await env.IMAGES_BUCKET.put(IMAGE_PREFIX + filename, bytes, {
+    httpMetadata: { contentType },
+  });
+
+  const imagePath = `/api/images?file=${filename}`;
+  const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO image_history (keyword_names, prompt, image_path, type, poster_path, created_at) VALUES (?, ?, ?, 'video', ?, ?)"
-    ).bind(body.keywords || "", actualPrompt, videoUrl, posterUrl, new Date().toISOString()),
+      "INSERT INTO image_history (keyword_names, prompt, image_path, size, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).bind(task.keyword_names, actualPrompt, imagePath, task.size, now),
     env.DB.prepare(
-      "UPDATE tasks SET status = 'completed', image_path = ?, poster_path = ?, progress = 100, error = '', updated_at = ? WHERE id = ? AND status = 'processing'"
-    ).bind(videoUrl, posterUrl, new Date().toISOString(), taskId),
+      "UPDATE tasks SET status = 'completed', image_path = ?, progress = 100, error = '', updated_at = ? " +
+        "WHERE id = ? AND status = 'processing'",
+    ).bind(imagePath, now, taskId),
   ]);
-  logTask("← video-ok", { taskId, videoUrl });
+  logTask("image-ok", { taskId, imagePath });
+}
+
+const QUALITY_SUFFIX =
+  ", natural body proportions, clearly defined limbs uncrossed, professional photography, highly detailed, masterpiece, sharp focus";
+
+function img2imgPrompt(prompt: string): string {
+  return (
+    "Using the reference image as the base, make the following edits while preserving " +
+    "the subject's identity, pose, and composition: " +
+    prompt +
+    QUALITY_SUFFIX
+  );
+}
+
+/** 上游要么回 base64，要么回一个临时 URL；两种都归一成字节。 */
+async function readResult(image: { b64_json?: string; url?: string }): Promise<{
+  bytes: Uint8Array;
+  contentType: string;
+}> {
+  if (image.b64_json) {
+    const binary = atob(image.b64_json);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return { bytes, contentType: "image/png" };
+  }
+  if (!image.url)
+    throw new ModelApiError("生图返回格式不支持（缺少 b64_json / url）");
+
+  const response = await fetchWithTimeout(image.url, {}, IMAGE_TIMEOUT_MS);
+  if (!response.ok)
+    throw new ModelApiError(`下载生成结果失败(${response.status})`);
+  const contentType =
+    response.headers.get("content-type")?.split(";")[0].trim() || "image/png";
+  return { bytes: new Uint8Array(await response.arrayBuffer()), contentType };
+}
+
+function extractMessage(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: { message?: string };
+      message?: string;
+    };
+    return parsed.error?.message || parsed.message || raw;
+  } catch {
+    return raw;
+  }
+}
+
+/** 每日定时：给卡死的任务收尸，并清理不再需要的参考图。 */
+export async function runMaintenance(
+  env: Env,
+): Promise<{ staleTasks: number; refs: number }> {
+  const now = new Date().toISOString();
+  const swept = await env.DB.prepare(
+    "UPDATE tasks SET status = 'failed', error = '任务超时未完成，已自动终止', progress = 0, updated_at = ? " +
+      "WHERE status = 'processing' AND updated_at < ?",
+  )
+    .bind(now, new Date(Date.now() - STALE_PROCESSING_MS).toISOString())
+    .run();
+
+  const cutoff = Date.now() - REF_MAX_AGE_MS;
+  const expired: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const listed = await env.IMAGES_BUCKET.list({
+      prefix: REF_PREFIX,
+      cursor,
+      limit: 500,
+    });
+    for (const object of listed.objects) {
+      if (object.uploaded.getTime() < cutoff) expired.push(object.key);
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+
+  if (expired.length) await env.IMAGES_BUCKET.delete(expired);
+
+  const result = { staleTasks: swept.meta.changes || 0, refs: expired.length };
+  logTask("maintenance", result);
+  return result;
 }

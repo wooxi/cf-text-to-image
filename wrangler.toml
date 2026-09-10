@@ -2,10 +2,17 @@ name = "cf-text-to-image"
 compatibility_date = "2025-06-01"
 pages_build_output_dir = "out"
 
+# ─────────────────────────────────────────────────────────────
+# 所有密钥/配置一律通过 Cloudflare 控制台的环境变量注入，
+# 不写入本文件、不落数据库、不在系统 UI 中编辑。
+# 见 README「环境变量」。
+# ─────────────────────────────────────────────────────────────
+
 [[d1_databases]]
 binding = "DB"
 database_name = "txt2img-db"
-database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
+# 由 setup-cf.sh 自动写入；手动部署时请替换为你自己的 D1 ID
+database_id = "REPLACE_WITH_YOUR_D1_ID"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
@@ -14,7 +21,3 @@ bucket_name = "txt2img-images"
 [[queues.producers]]
 binding = "TASK_QUEUE"
 queue = "txt2img-task-queue"
-
-[vars]
-# JWT_SECRET / ENABLE_REGISTRATION 通过 `wrangler pages secret put` 管理，不写入仓库
-ENABLE_REGISTRATION = "false"

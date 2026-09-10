@@ -1,51 +1,130 @@
-#!/bin/bash
-# CF 全家桶一键初始化脚本
-# 前提：已运行 npx wrangler login
+#!/usr/bin/env bash
+#
+# CF 全家桶一键初始化。
+# 前置：npx wrangler login（或已设置 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID）
+#
+# 与旧版的区别：
+#   * 同时更新 wrangler.toml 和 queue-worker/wrangler.toml 的 database_id
+#     （旧版只改前者，消费者 Worker 会绑到别人的数据库上）
+#   * 先创建 Pages 项目再写 secret（pages secret put 要求项目已存在）
+#   * 没有账号体系，只需要一个访问密码
+#   * macOS / Linux 都能用（旧版 sed -i 是 GNU 语法，macOS 上会失败）
+
 set -euo pipefail
 
 PROJECT="cf-text-to-image"
+DB_NAME="txt2img-db"
+BUCKET="txt2img-images"
+QUEUE="txt2img-task-queue"
+WORKER_CONFIG="queue-worker/wrangler.toml"
 
-echo "=== 1. 创建 D1 数据库 ==="
-DB_INFO=$(npx wrangler d1 create txt2img-db 2>/dev/null) || { echo "txt2img-db 已存在，读取现有 ID"; DB_INFO=$(npx wrangler d1 info txt2img-db 2>/dev/null); }
-DB_ID=$(echo "$DB_INFO" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
-if [ -z "$DB_ID" ]; then echo "无法获取 database_id，请手动填入 wrangler.toml"; exit 1; fi
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "缺少命令：$1" >&2
+    exit 1
+  }
+}
+need_cmd node
+need_cmd npx
+
+if [ ! -t 0 ] && [ -z "${ACCESS_PASSWORD:-}" ]; then
+  echo "非交互环境：请先 export ACCESS_PASSWORD 再运行。" >&2
+  exit 1
+fi
+
+# 写 secret：Pages 与 Worker 语法不同
+put_secret() {
+  local target="$1" name="$2" value="$3"
+  if [ "$target" = "pages" ]; then
+    printf '%s' "$value" | npx wrangler pages secret put "$name" --project-name="$PROJECT"
+  else
+    printf '%s' "$value" | npx wrangler secret put "$name" --config "$WORKER_CONFIG"
+  fi
+  echo "  ✓ $name → $target"
+}
+
+echo "=== 1/8 创建 D1 数据库 ==="
+if DB_INFO=$(npx wrangler d1 create "$DB_NAME" 2>/dev/null); then
+  echo "已创建 $DB_NAME"
+else
+  echo "$DB_NAME 已存在，读取现有信息"
+  DB_INFO=$(npx wrangler d1 info "$DB_NAME")
+fi
+DB_ID=$(printf '%s' "$DB_INFO" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+[ -n "$DB_ID" ] || {
+  echo "无法解析 database_id，请手动填入两个 wrangler.toml" >&2
+  exit 1
+}
 echo "D1 ID: $DB_ID"
 
-echo "=== 2. 创建 R2 存储桶与队列 ==="
-npx wrangler r2 bucket create txt2img-images 2>/dev/null || echo "Bucket 已存在"
-npx wrangler queues create txt2img-task-queue 2>/dev/null || echo "Queue 已存在"
+echo "=== 2/8 创建 R2 存储桶与队列 ==="
+npx wrangler r2 bucket create "$BUCKET" 2>/dev/null || echo "Bucket 已存在"
+npx wrangler queues create "$QUEUE" 2>/dev/null || echo "Queue 已存在"
 
-echo "=== 3. 更新 wrangler.toml ==="
-sed -i "s/^database_id = .*/database_id = \"$DB_ID\"/" wrangler.toml
-
-echo "=== 4. 执行数据库迁移 ==="
-for f in db/migrations/*.sql; do
-  echo "-- $f"
-  npx wrangler d1 execute txt2img-db --remote --file="$f" -y || echo "（跳过：$f 可能已应用）"
+echo "=== 3/8 写入 database_id（两个配置文件）==="
+for cfg in wrangler.toml "$WORKER_CONFIG"; do
+  [ -f "$cfg" ] || {
+    echo "找不到 $cfg" >&2
+    exit 1
+  }
+  sed "s|^database_id = .*|database_id = \"$DB_ID\"|" "$cfg" >"$cfg.tmp"
+  mv "$cfg.tmp" "$cfg"
+  echo "  ✓ $cfg"
 done
 
-echo "=== 5. 设置 JWT_SECRET（输入后不可见）==="
-echo "为 Pages 项目设置强随机密钥（留空则自动生成）："
-read -s -p "JWT_SECRET: " JWT_SECRET_INPUT
-echo
-JWT_SECRET_VALUE=${JWT_SECRET_INPUT:-$(openssl rand -hex 32)}
-echo "$JWT_SECRET_VALUE" | npx wrangler pages secret put JWT_SECRET --project-name="$PROJECT"
+echo "=== 4/8 应用数据库迁移 ==="
+for f in ./db/migrations/*.sql; do
+  echo "  ▶ $f"
+  npx wrangler d1 execute "$DB_NAME" --remote -y --file="$f"
+done
 
-echo "=== 6. 创建管理员 ==="
-read -p "管理员用户名 [admin]: " ADMIN_USER
-ADMIN_USER=${ADMIN_USER:-admin}
-read -s -p "管理员密码（至少 8 位）: " ADMIN_PASS
-echo
-HASH=$(node -e "const bcrypt = require('bcryptjs'); console.log(bcrypt.hashSync(process.argv[1], 10));" "$ADMIN_PASS")
-npx wrangler d1 execute txt2img-db --remote -y --command \
-  "INSERT INTO users (username, password_hash, role, created_at) VALUES ('$ADMIN_USER', '$HASH', 'admin', datetime('now'))"
+echo "=== 5/8 创建 Pages 项目 ==="
+npx wrangler pages project create "$PROJECT" --production-branch master 2>/dev/null &&
+  echo "已创建 Pages 项目" ||
+  echo "Pages 项目已存在"
 
-echo "=== 7. 构建并首次部署 ==="
+echo "=== 6/8 构建并部署 ==="
 npm install
 npm run build
 npx wrangler pages deploy out --project-name="$PROJECT" --branch=master
-npx wrangler deploy --config queue-worker/wrangler.toml
+npx wrangler deploy --config "$WORKER_CONFIG"
 
-echo ""
-echo "✅ 初始化完成！记得在后台管理页设置模型 API Key。"
-echo "   GitHub Actions 已配置：每次 push 到 master 自动部署。"
+echo "=== 7/8 写入环境变量 ==="
+if [ -z "${SESSION_SECRET:-}" ]; then
+  SESSION_SECRET=$(openssl rand -hex 32)
+fi
+put_secret pages SESSION_SECRET "$SESSION_SECRET"
+
+if [ -z "${ACCESS_PASSWORD:-}" ]; then
+  read -r -s -p "设置访问密码（登录系统的唯一凭据）: " ACCESS_PASSWORD
+  echo
+fi
+put_secret pages ACCESS_PASSWORD "$ACCESS_PASSWORD"
+
+# 图像模型配置两边都要（Pages 提交任务时校验、Worker 出图时调用）
+for name in IMAGE_ENDPOINT IMAGE_API_KEY IMAGE_MODEL; do
+  value="${!name:-}"
+  if [ -n "$value" ]; then
+    put_secret pages "$name" "$value"
+    put_secret worker "$name" "$value"
+  fi
+done
+
+echo "=== 8/8 完成 ==="
+cat <<EOF
+
+✅ 初始化完成
+
+还需要到 Cloudflare 控制台补齐以下变量（脚本不代填密钥，避免进入 shell 历史）：
+
+  Pages 项目 → Settings → Variables and Secrets
+    LLM_ENDPOINT     例如 https://api.openai.com/v1
+    LLM_API_KEY      LLM 密钥（提示词生成 / 润色）
+    LLM_MODEL        例如 gpt-4o
+    IMAGE_*          若上面没通过环境变量传入，也需要在这里补一份
+
+  消费者 Worker → Settings → Variables and Secrets
+    IMAGE_ENDPOINT / IMAGE_API_KEY / IMAGE_MODEL  必须与 Pages 一致
+
+补齐后重新部署一次即可打开站点，用访问密码进入。
+EOF

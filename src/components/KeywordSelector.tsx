@@ -1,184 +1,196 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Keyword, KeywordGroup, KeywordFacet } from "@/types";
+import type { KeywordGroup } from "@/types";
 
 interface Props {
   groups: KeywordGroup[];
   selected: string[];
-  onToggle: (keyword: string) => void;
-  onClear?: () => void;
+  onToggle: (keyword: string, group: KeywordGroup) => void;
+  onClearGroup: (group: KeywordGroup) => void;
+  onClearAll: () => void;
 }
 
-function getSourceKeywords(group: KeywordGroup): Keyword[] {
-  const facets: KeywordFacet[] = (group as any).facets || [];
-  if (facets.length > 0) {
-    return facets.flatMap((f) => f.keywords);
-  }
-  return ((group as any).flattenedKeywords || group.keywords || []) as Keyword[];
+const CHIP_BASE =
+  "rounded-md border px-3 py-1.5 text-sm font-medium transition-base";
+
+function chipStyle(active: boolean): React.CSSProperties {
+  return {
+    background: active ? "var(--accent-light)" : "rgba(255,255,255,0.03)",
+    borderColor: active ? "var(--accent)" : "var(--border)",
+    color: active ? "var(--accent)" : "var(--text-secondary)",
+  };
 }
 
-function keywordMatchesQuery(keyword: Keyword, normalizedQuery: string) {
-  return !normalizedQuery || keyword.name.toLowerCase().includes(normalizedQuery);
-}
-
-function isParamGroup(group: KeywordGroup): boolean {
-  return !!(group as any).isParameterGroup || !!(group as any).parameterGroup || group.slug === "output";
-}
-
-export default function KeywordSelector({ groups, selected, onToggle, onClear }: Props) {
+export default function KeywordSelector({
+  groups,
+  selected,
+  onToggle,
+  onClearGroup,
+  onClearAll,
+}: Props) {
   const [query, setQuery] = useState("");
-  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
+  const [selectedOnly, setSelectedOnly] = useState(false);
 
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalized = query.trim().toLowerCase();
 
-  const semanticGroups = useMemo(() => {
-    return groups.filter((g) => !isParamGroup(g));
-  }, [groups]);
+  const visibleGroups = useMemo(() => {
+    return groups.map((group) => ({
+      group,
+      keywords: group.keywords.filter((kw) => {
+        if (selectedOnly && !selected.includes(kw.name)) return false;
+        return !normalized || kw.name.toLowerCase().includes(normalized);
+      }),
+    }));
+  }, [groups, normalized, selected, selectedOnly]);
 
-  const paramGroups = useMemo(() => {
-    return groups.filter((g) => isParamGroup(g));
-  }, [groups]);
+  const hasAnyKeyword = groups.some((g) => g.keywords.length > 0);
 
-  const filteredGroups = useMemo(() => {
-    return semanticGroups
-      .map((group) => {
-        const sourceKeywords = getSourceKeywords(group);
-        const matching = sourceKeywords.filter((kw) => {
-          if (showSelectedOnly && !selected.includes(kw.name)) return false;
-          return keywordMatchesQuery(kw, normalizedQuery);
-        });
-        return { ...group, flattenedKeywords: matching };
-      })
-      .filter((group) => group.flattenedKeywords.length > 0 || (!normalizedQuery && !showSelectedOnly));
-  }, [semanticGroups, normalizedQuery, selected, showSelectedOnly]);
-
-  const parameterKeywords = useMemo(() => {
-    return paramGroups.flatMap((group) => {
-      const sourceKeywords = getSourceKeywords(group);
-      return sourceKeywords.filter((kw) => {
-        if (showSelectedOnly && !selected.includes(kw.name)) return false;
-        return keywordMatchesQuery(kw, normalizedQuery);
-      });
-    });
-  }, [paramGroups, normalizedQuery, selected, showSelectedOnly]);
-
-  const totalSelected = selected.length;
+  if (!hasAnyKeyword) {
+    return (
+      <div
+        className="rounded-lg border border-dashed px-6 py-12 text-center text-sm"
+        style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+      >
+        <p>还没有任何关键词。</p>
+        <p className="mt-1.5 text-xs">
+          打开右上角「设置 → 关键词」，新建分组并把词条加进去。
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Search bar */}
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索关键词..."
-          className="flex-1 min-w-[160px] rounded-md border border-app-border/60 bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-app-text placeholder:text-app-text3 focus:border-[var(--border-hover)] focus:outline-none"
+          placeholder="搜索关键词…"
+          aria-label="搜索关键词"
+          className="min-w-[160px] flex-1 rounded-md border px-3 py-2 text-sm outline-none transition-base focus:border-[var(--border-hover)]"
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--bg-tertiary)",
+            color: "var(--text-primary)",
+          }}
         />
-        <span className="text-[11px] text-app-text3 tabular-nums">{groups.length} 组</span>
-        <span className="text-[11px] text-app-text3 tabular-nums">{totalSelected} 已选</span>
+        <span
+          className="text-[11px] tabular-nums"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {selected.length} 已选
+        </span>
         <button
           type="button"
-          onClick={() => setShowSelectedOnly((prev) => !prev)}
-          className="rounded-md border border-app-border/60 px-3 py-1.5 text-xs text-app-text3 transition-base hover:border-[var(--border-hover)] hover:text-app-text2"
+          onClick={() => setSelectedOnly((v) => !v)}
+          className="rounded-md border px-3 py-1.5 text-xs transition-base hover:border-[var(--border-hover)]"
+          style={{
+            borderColor: "var(--border)",
+            color: "var(--text-secondary)",
+          }}
         >
-          {showSelectedOnly ? "全部" : "仅看已选"}
+          {selectedOnly ? "显示全部" : "仅看已选"}
         </button>
-        {totalSelected > 0 && onClear && (
+        {selected.length > 0 && (
           <button
             type="button"
-            onClick={onClear}
-            className="rounded-md border border-app-border/60 px-3 py-1.5 text-xs text-app-text3 transition-base hover:border-[var(--danger)] hover:text-[var(--danger)]"
+            onClick={onClearAll}
+            className="rounded-md border px-3 py-1.5 text-xs transition-base hover:border-[var(--danger)] hover:text-[var(--danger)]"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
           >
             清空
           </button>
         )}
       </div>
 
-      {/* Semantic groups — flat chips */}
-      {filteredGroups.length > 0 && (
-        <div className="flex flex-col gap-6">
-          {filteredGroups.map((group) => {
-            const groupSelected = group.flattenedKeywords.filter((kw) => selected.includes(kw.name)).length;
-            return (
-              <div key={group.id}>
-                <div className="flex items-baseline justify-between gap-3 pb-2 mb-3 border-b border-app-border/40">
-                  <div className="flex items-baseline gap-2">
-                    <h3 className="text-lg font-semibold text-app-text">{group.name}</h3>
-                    {group.description && (
-                      <span className="text-xs text-app-text3 hidden sm:inline">{group.description}</span>
-                    )}
-                  </div>
-                  <span className="text-xs tabular-nums text-app-text3 shrink-0">{groupSelected} 选</span>
-                </div>
+      {visibleGroups.map(({ group, keywords }) => {
+        const selectedInGroup = group.keywords.filter((kw) =>
+          selected.includes(kw.name),
+        ).length;
+        if (keywords.length === 0 && (normalized || selectedOnly)) return null;
 
-                <div className="flex flex-wrap gap-2.5">
-                  {group.flattenedKeywords.map((kw) => {
-                    const active = selected.includes(kw.name);
-                    return (
-                      <button
-                        key={kw.id}
-                        type="button"
-                        onClick={() => onToggle(kw.name)}
-                        className="rounded-md border px-3 py-1.5 text-sm font-medium transition-base"
-                        style={{
-                          background: active ? "var(--accent-light)" : "rgba(255,255,255,0.03)",
-                          borderColor: active ? "var(--accent)" : "var(--border)",
-                          color: active ? "var(--accent)" : "var(--text-secondary)",
-                        }}
-                      >
-                        {kw.name}
-                      </button>
-                    );
-                  })}
-                </div>
+        return (
+          <section key={group.id}>
+            <div
+              className="mb-2.5 flex items-baseline justify-between gap-3 border-b pb-2"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="flex items-baseline gap-2">
+                <h3
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {group.name}
+                  {group.isParameterGroup && (
+                    <span
+                      className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-normal"
+                      style={{
+                        background: "var(--bg-tertiary)",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      输出参数
+                    </span>
+                  )}
+                </h3>
+                {group.description && (
+                  <span
+                    className="hidden text-xs sm:inline"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {group.description}
+                  </span>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Parameter groups — flat chips row */}
-      {parameterKeywords.length > 0 && (
-        <div>
-          <div className="flex items-baseline justify-between gap-3 pb-2 mb-3 border-b border-app-border/40">
-            <div className="flex items-baseline gap-2">
-              <h3 className="text-lg font-semibold text-app-text2">输出参数</h3>
-              <span className="text-xs text-app-text3">比例与清晰度，不参与语义推理</span>
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  className="text-xs tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {selectedInGroup} 选
+                </span>
+                {selectedInGroup > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onClearGroup(group)}
+                    className="text-xs transition-base hover:text-[var(--danger)]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    清空
+                  </button>
+                )}
+              </div>
             </div>
-            <span className="text-xs tabular-nums text-app-text3 shrink-0">
-              {parameterKeywords.filter((kw) => selected.includes(kw.name)).length} 选
-            </span>
-          </div>
 
-          <div className="flex flex-wrap gap-2.5">
-            {parameterKeywords.map((kw) => {
-              const active = selected.includes(kw.name);
-              return (
+            <div className="flex flex-wrap gap-2.5">
+              {keywords.map((kw) => (
                 <button
                   key={kw.id}
                   type="button"
-                  onClick={() => onToggle(kw.name)}
-                  className="rounded-md border px-3 py-1.5 text-sm font-medium transition-base"
-                  style={{
-                    background: active ? "var(--accent-light)" : "rgba(255,255,255,0.03)",
-                    borderColor: active ? "var(--accent)" : "var(--border)",
-                    color: active ? "var(--accent)" : "var(--text-secondary)",
-                  }}
+                  aria-pressed={selected.includes(kw.name)}
+                  onClick={() => onToggle(kw.name, group)}
+                  className={CHIP_BASE}
+                  style={chipStyle(selected.includes(kw.name))}
                 >
                   {kw.name}
                 </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {filteredGroups.length === 0 && parameterKeywords.length === 0 && (
-        <div className="rounded-lg border border-dashed border-app-border/40 px-6 py-12 text-center text-sm text-app-text3">
-          {groups.length === 0 ? "正在加载关键词..." : "没有匹配到关键词，换个词试试。"}
-        </div>
-      )}
+              ))}
+              {keywords.length === 0 && (
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  该分组暂无关键词
+                </span>
+              )}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

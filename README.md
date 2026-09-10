@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Cloudflare-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D22.0-brightgreen" alt="Node">
@@ -8,664 +8,294 @@
 <h1 align="center">CF Text-to-Image Studio</h1>
 
 <p align="center">
-  <strong>AI 创意工坊 · 全栈 Serverless · 一键部署</strong><br>
-  基于 Cloudflare 全家桶的 AI 文生图 / 图生图 / 视频生成工作室
+  <strong>私人 AI 文生图工作台 · 全栈 Serverless</strong><br>
+  关键词生成提示词 → 异步队列出图 → 归档到图库
 </p>
-
----
-
-<!-- ═══════════════════ 插图 · 首页截图 ═══════════════════ -->
-<!-- ![](docs/screenshots/homepage.png) -->
-
----
-
-## 目录
-
-- [简介](#简介)
-- [核心能力](#核心能力)
-- [系统架构](#系统架构)
-- [快速开始](#快速开始)
-- [项目结构](#项目结构)
-- [配置参考](#配置参考)
-- [API 文档](#api-文档)
-- [数据库设计](#数据库设计)
-- [部署指南](#部署指南)
-- [可观测性](#可观测性)
-- [常见问题](#常见问题)
-- [经验总结](#经验总结)
-- [维护与贡献](#维护与贡献)
 
 ---
 
 ## 简介
 
-**CF Text-to-Image Studio** 是一个完整部署在 Cloudflare 边缘网络上的 AI 图像与视频生成工作室。
+一个完整跑在 Cloudflare 上的文生图工作台：选关键词、由 LLM 写成中文画面描述、提交后由队列 Worker 调用图像模型，结果存入 R2 并归档。
 
-用户通过可视化界面选择关键词、撰写提示词，由 LLM 辅助生成高质量画面描述，再通过异步任务队列调用图像/视频模型完成创作。整个系统从前端页面、API 接口、数据库、对象存储到后台消费者全部运行在 Cloudflare 上，无需管理任何服务器。
+**这是私人工具，不是多租户服务。** 只有一个访问密码，没有注册、没有账号、没有角色。密码和全部密钥都放在 Cloudflare 环境变量里，系统内部不存储、也不能修改。
 
 ### 技术栈
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 前端 | Next.js 14 + React 18 + Tailwind CSS 3 | App Router，静态导出 |
-| API | Cloudflare Pages Functions | 文件路由，零配置部署 |
-| 数据库 | Cloudflare D1 | SQLite 兼容，边缘分布式 |
-| 对象存储 | Cloudflare R2 | S3 兼容，零出站费用 |
-| 异步任务 | Cloudflare Queues | 可靠投递，自动重试 |
-| 后台消费 | Cloudflare Worker | 独立运行时，长任务处理 |
-| 认证 | JWT (jose) + bcryptjs | 无状态鉴权 |
-| CI/CD | GitHub Actions | 推送即部署 |
-
-### 为什么选择全 Serverless
-
-- **零服务器运维** — 无需管理实例、操作系统或容器编排
-- **按量付费** — 没有请求时不产生费用
-- **边缘就近** — Pages 和 Worker 运行在全球边缘节点
-- **弹性伸缩** — Cloudflare 自动处理流量峰值
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | Next.js 14 + React 18 + Tailwind（`output: "export"` 静态导出） |
+| API | Cloudflare Pages Functions（文件路由） |
+| 数据库 | Cloudflare D1 |
+| 对象存储 | Cloudflare R2 |
+| 异步任务 | Cloudflare Queues |
+| 后台消费 | Cloudflare Worker（消费 + 每日定时维护） |
+| 鉴权 | Web Crypto + JWT (jose) |
 
 ---
 
-## 核心能力
+## 架构
 
-### 🎨 三种创作模式
-
-| 模式 | 说明 |
-|------|------|
-| **关键词导演** | 按"主体 → 环境 → 服装 → 姿态 → 镜头 → 风格 → 输出"逐层选词，LLM 自动编排成完整提示词 |
-| **参考图编辑** | 上传参考图 + 编辑指令，保留构图的前提下修改服装、色调、风格 |
-| **视频生成** | 支持文生视频、参考图视频、关键帧动画，可调分辨率 / 帧数 / 帧率 |
-
-<!-- ![](docs/screenshots/keyword-selector.png) -->
-<!-- ![](docs/screenshots/img2img-mode.png) -->
-<!-- ![](docs/screenshots/video-mode.png) -->
-
-### 🤖 AI 辅助
-
-- **提示词生成** — 选中关键词，一键让 LLM 生成 80-300 字的完整中文画面描述
-- **提示词润色** — 对已有文本进行扩写、增强氛围、提升文学性
-- **模型切换** — 支持 OpenAI 兼容接口，可在后台自由配置端点与模型
-
-### ⚡ 异步任务系统
-
+```text
+  ┌──────────┐    HTTPS     ┌──────────────────────┐
+  │  Browser  │─────────────▶│  Cloudflare Pages     │
+  │           │◀─────────────│  静态前端 + /api/*     │
+  └──────────┘              └──────────┬───────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+        ┌─────▼─────┐          ┌───────▼──────┐         ┌───────▼──────┐
+        │    D1     │          │      R2       │         │    Queue     │
+        │ tasks     │          │ images/ 成品  │         │              │
+        │ history   │          │ refs/   参考图 │         │              │
+        │ keywords  │          └──────────────┘         └───────┬──────┘
+        └───────────┘                                           │
+                                                    ┌───────────▼──────────┐
+                                                    │  Worker Consumer     │
+                                                    │  queue() + scheduled()│
+                                                    └───────────┬──────────┘
+                                                                │
+                                                        ┌───────▼────────┐
+                                                        │  图像模型 API    │
+                                                        └────────────────┘
 ```
-用户提交 → 任务入库 → 入队(Queue) → Worker 消费 → 调用模型 API → 结果写 R2 + D1
+
+两个 Cloudflare 服务：
+
+| 名称 | 职责 | 需要的环境变量 |
+| --- | --- | ------- |
+| `cf-text-to-image`（Pages） | 静态前端 + `/api/*` + 鉴权 + LLM 调用 + 入队 | 全部 |
+| `cf-text-to-image-task-consumer`（Worker） | 消费队列 → 调图像模型 → 写回 D1/R2；每天 03:00 UTC 收尸 | 只需 `IMAGE_*` |
+
+### 任务状态机
+
+```text
+pending ──(乐观锁抢占)──▶ processing ──▶ completed
+   ▲                          │
+   │                          └──▶ failed ──(PUT /api/tasks)──┐
+   └──────────────────────────────────────────────────────────┘
 ```
 
-- 前端提交后立即可继续操作，不阻塞
-- 实时轮询任务状态 (pending → processing → completed / failed)
-- 失败任务支持一键重试
-- 生成结果自动归档到历史画廊
-
-### 🔐 后台管理
-
-- JWT 账号体系，注册/登录/鉴权
-- 模型端点、API Key、模型名称可视化配置
-- 系统提示词 (生图 / 视频 / 润色) 可自定义
-- 关键词分组管理，支持单选 / 多选 / 最大数量限制
+- **乐观锁**：`UPDATE ... WHERE status IN ('pending','failed')`，抢不到就跳过，不会重复出图
+- **重试**：队列 `max_retries = 1`，只有基础设施异常（D1/R2/网络）才重投；上游业务错误直接判失败
+- **收尸**：每天 03:00 UTC 把超过 30 分钟仍是 `processing` 的任务标记失败，并清理 7 天前的参考图
 
 ---
 
-## 系统架构
+## 设计取舍
 
-```
-                              ┌──────────────────────┐
-                              │      GitHub Actions   │
-                              │   push → build →     │
-                              │   deploy Pages +     │
-                              │   deploy Worker      │
-                              └──────────┬───────────┘
-                                         │
-  ┌──────────┐     HTTPS      ┌─────────▼──────────┐
-  │  Browser  │───────────────│  Cloudflare Pages    │
-  │           │◀──────────────│  cf-text-to-image    │
-  └──────────┘                │                      │
-                              │  ┌────────────────┐  │
-                              │  │ Next.js (static)│  │
-                              │  └────────────────┘  │
-                              │  ┌────────────────┐  │
-                              │  │ Pages Functions │  │
-                              │  │ /api/*          │  │
-                              │  └───────┬────────┘  │
-                              └──────────┼───────────┘
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    │                    │                    │
-              ┌─────▼─────┐      ┌──────▼──────┐     ┌──────▼──────┐
-              │    D1      │      │     R2      │     │   Queue     │
-              │ txt2img-db │      │txt2img-images│     │txt2img-task │
-              │            │      │             │     │             │
-              │ · users    │      │ · 生成图片   │     │ · task msgs │
-              │ · tasks    │      │ · 参考图     │     │             │
-              │ · config   │      │             │     │             │
-              │ · keywords │      │             │     │             │
-              │ · history  │      │             │     │             │
-              └────────────┘      └─────────────┘     └──────┬──────┘
-                                                            │
-                                                  ┌─────────▼──────────┐
-                                                  │  Worker Consumer   │
-                                                  │  task-consumer     │
-                                                  │                    │
-                                                  │  processImage()    │
-                                                  │  processVideo()    │
-                                                  └────────┬───────────┘
-                                                           │
-                                                    ┌──────▼──────┐
-                                                    │  External   │
-                                                    │  Model APIs │
-                                                    │             │
-                                                    │  · LLM      │
-                                                    │  · Image    │
-                                                    │  · Video    │
-                                                    └─────────────┘
-```
+这一版刻意做了减法。有几处是刻意的「不做」，理由如下——如果不同意，改回来都不难：
 
-### 两个 Cloudflare 服务
+### 1. 访问密码不哈希，直接比对
 
-| 名称 | 类型 | 职责 |
-|------|------|------|
-| `cf-text-to-image` | Cloudflare Pages | 前端页面 + `/api/*` 接口 + 鉴权 + 任务入队 |
-| `cf-text-to-image-task-consumer` | Cloudflare Worker | 消费 Queue → 调模型 API → 写回 D1 和 R2 |
+`ACCESS_PASSWORD` 明文放在 Cloudflare Secret 里，校验时对两侧各做一次 SHA-256 后定长比较。
 
-> **不是两个网站**。用户只访问 Pages 项目，Worker 是后台消费者，对用户不可见。
+哈希的意义是「存储被读取后仍无法还原明文」。但 `SESSION_SECRET` 就躺在同一份环境变量里——**拿到环境变量的人可以直接伪造会话 Cookie**，哈希 `ACCESS_PASSWORD` 提供不了任何额外防护，却要引入盐值、迭代次数、缓存和哈希格式解析一整套代码（还得为了适配 Workers 免费版 10ms CPU 预算去调迭代次数）。
 
-### 任务队列设计
+> 如果你希望抵御「Cloudflare Secret 泄露」这个场景，那真正该保护的是 `SESSION_SECRET`，而不是把密码再哈希一层。
 
-- **单队列，多并发** — 一个 `txt2img-task-queue`，Worker 端 `max_concurrency = 10`，最多同时处理 10 个任务
-- **乐观锁** — 消费时 UPDATE `WHERE status IN ('pending','failed')`，0 rows changed 则跳过，防止重复处理
-- **自动重试** — `max_retries = 1`，失败消息自动重新投递一次
+### 2. 不做登录限速、不做任务配额
 
-### 超时保护
+单用户 + 强密码的前提下，「暴力破解」和「滥用额度」都不成立——能登录的人就是拥有 API Key 的人。这两个机制需要额外的表、额外的 D1 往返和额外的错误分支。删掉了。
 
-所有对外 API 调用均设置 `AbortController` 超时：
+### 3. 只支持一种图像上游协议
 
-| 端点 | 超时 | 说明 |
-|------|------|------|
-| `/api/generate-prompt` (LLM) | 25s | 提示词生成 |
-| `/api/polish` (LLM) | 25s | 提示词润色 |
-| `processImage()` (图像 API) | 无 | 在 Queue Worker 中运行，Worker 有更长时限 |
-| `processVideo()` (视频 API) | 无 | 同上 |
+统一走 OpenAI 兼容协议：文生图 `POST /images/generations`（JSON），图生图 `POST /images/edits`（multipart）。
+
+旧版还有一个 `agnes` 分支，通过 `extra_body.image` 传**公网 URL**。这需要把参考图暴露成可公网访问的地址，于是带出了 `PUBLIC_BASE_URL`、参考图签名短链、`/api/ref` 路由，以及 Worker 也要配 `SESSION_SECRET` 一整套东西。删掉这个分支后，参考图只从 R2 读字节直接塞进 multipart，**从不对外暴露**。
+
+### 4. 参考图不支持外链
+
+只接受上传的文件（Data URI）。放行外链等于让上游替我们请求任意地址，而且我们无法校验它拿到的是什么。前端同时也不做客户端压缩——超限就明确报错，让用户自己压。
+
+### 5. 任务参数只有一份来源
+
+旧版把整个请求 `JSON.stringify` 存进 `request_json` 做「快照」，但那张表已经有 `prompt` / `keyword_names` / `size` / `reference_image` 这些列了——快照和列完全重复，还得同步、还得处理解析失败。删掉了，参数就是列。参考图在入队前先落 R2，所以列里存的是对象键，不会撞 D1 单行 2MB 上限。
+
+### 6. 迁移只有两个文件
+
+旧的 4 个迁移里有 1 个在任何新库上都会失败（`ALTER TABLE` 加已存在的列），还有 1 个是运维动作。单实例服务不需要层层叠加的增量迁移，现在是 `0000_init.sql`（全部结构）+ `0001_seed_keywords.sql`（193 个初始关键词）。
+
+> ⚠️ **如果你已经部署过旧版**：需要在 D1 里先删掉旧表再跑新迁移，否则 `0000` 的 `CREATE TABLE IF NOT EXISTS` 会跳过、结构对不上：
+>
+> ```bash
+> npx wrangler d1 execute txt2img-db --remote -y --command \
+>   "DROP TABLE IF EXISTS tasks; DROP TABLE IF EXISTS image_history; DROP TABLE IF EXISTS keywords; DROP TABLE IF EXISTS keyword_groups; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS config; DROP TABLE IF EXISTS login_attempts;"
+> ```
+>
+> 这会清空历史作品与任务记录。
 
 ---
 
 ## 快速开始
 
-### 前置条件
-
-- Node.js ≥ 22
-- Cloudflare 账号
-- wrangler CLI (`npm i -g wrangler`)
-- 模型 API 端点及 Key
-
-### 一键脚本
+前置：Node ≥ 22、Cloudflare 账号、`npx wrangler login`、一个 OpenAI 兼容的图像模型端点。
 
 ```bash
 git clone https://github.com/wooxi/cf-text-to-image.git
 cd cf-text-to-image
+
+export ACCESS_PASSWORD="$(openssl rand -base64 24)"   # 或交互式输入
 bash setup-cf.sh
 ```
 
-脚本会自动完成：创建 D1 数据库 → 创建 R2 存储桶 → 执行数据库迁移 → 引导设置 API Key → 创建管理员 → 首次部署。
+脚本会：创建 D1 / R2 / Queue → 把 `database_id` 写进**两个** `wrangler.toml` → 应用迁移 → 创建 Pages 项目 → 构建部署 → 部署 Worker → 写入 `SESSION_SECRET` / `ACCESS_PASSWORD`（以及你通过环境变量传入的 `IMAGE_*`）。
 
-### 手动步骤
+然后到控制台补齐模型变量并重新部署一次：
 
-#### 1. 安装依赖 & 构建
+- **Pages → Settings → Variables and Secrets**：`LLM_ENDPOINT`、`LLM_API_KEY`、`LLM_MODEL`，以及 `IMAGE_*`
+- **Worker → Settings → Variables and Secrets**：`IMAGE_ENDPOINT`、`IMAGE_API_KEY`、`IMAGE_MODEL`（必须与 Pages 一致）
 
-```bash
-npm install
-npm run build
-```
+---
 
-#### 2. 创建 Cloudflare 资源
+## 环境变量
 
-```bash
-npx wrangler d1 create txt2img-db
-npx wrangler r2 bucket create txt2img-images
-npx wrangler queues create txt2img-task-queue
-```
+### 必填
 
-将 `wrangler.toml` 中的 `database_id` 替换为实际 D1 ID。
+| 变量 | 配置位置 | 说明 |
+| --- | ---- | --- |
+| `SESSION_SECRET` | Pages | 会话 Cookie 签名密钥。`openssl rand -hex 32`，至少 16 字符 |
+| `ACCESS_PASSWORD` | Pages | 访问密码，系统的唯一凭据。建议 ≥12 位随机 |
+| `LLM_ENDPOINT` | Pages | 例如 `https://api.openai.com/v1`（缺协议会自动补 `https://`，无路径时补 `/v1`） |
+| `LLM_API_KEY` | Pages | 提示词生成 / 润色 |
+| `LLM_MODEL` | Pages | 例如 `gpt-4o` |
+| `IMAGE_ENDPOINT` | Pages + Worker | 图像模型端点 |
+| `IMAGE_API_KEY` | Pages + Worker | 图像模型密钥 |
+| `IMAGE_MODEL` | Pages + Worker | 例如 `gpt-image-1` |
 
-#### 3. 数据库迁移
+### 可选
 
-```bash
-npx wrangler d1 execute txt2img-db --remote --file=db/migrations/0000_init.sql
-npx wrangler d1 execute txt2img-db --remote --file=db/migrations/0001_task_request_json.sql
-```
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `PROMPT_SYSTEM_IMAGE` | 内置 | 覆写生图系统提示词 |
+| `PROMPT_SYSTEM_POLISH` | 内置 | 覆写润色系统提示词 |
 
-#### 4. 部署
-
-```bash
-npx wrangler pages deploy out --project-name=cf-text-to-image --branch=master
-npx wrangler deploy --config queue-worker/wrangler.toml
-```
-
-#### 5. 创建管理员
-
-```bash
-# 在 D1 中手动插入
-npx wrangler d1 execute txt2img-db --remote --command \
-  "INSERT INTO users (username, password_hash, created_at) VALUES ('admin', '<bcrypt_hash>', datetime('now'));"
-```
+改动环境变量后需要**重新部署**才生效。设置页的「运行状态」会逐条显示哪些已配置、缺哪个、以及每个变量该配在哪个服务上。
 
 ---
 
 ## 项目结构
 
-```
-cf-text-to-image/
-├── src/                          # 前端 (Next.js 14 App Router)
-│   ├── app/
-│   │   ├── page.tsx              # 桌面端主页
-│   │   ├── admin/page.tsx        # 后台管理面板
-│   │   ├── layout.tsx            # 根布局 (ThemeProvider)
-│   │   └── globals.css           # 全局样式 + CSS 变量
-│   ├── components/
-│   │   ├── Header.tsx            # 顶栏
-│   │   ├── KeywordSelector.tsx   # 关键词筛选面板
-│   │   ├── ImageUploader.tsx     # 图片上传 (拖拽/粘贴/URL)
-│   │   ├── MasonryGallery.tsx    # 瀑布流画廊
-│   │   ├── TaskCard.tsx          # 任务卡片 (进度/状态/重试)
-│   │   ├── ImageCard.tsx         # 单张图片卡片
-│   │   ├── LoginModal.tsx        # 登录弹窗
-│   │   ├── FullscreenViewer.tsx  # 全屏图片查看器
-│   │   ├── MobileHome.tsx        # 移动端主页
-│   │   └── ThemeProvider.tsx     # 主题上下文
-│   ├── lib/
-│   │   ├── keyword-presets.ts    # 默认关键词数据
-│   │   └── generated-media.ts    # 媒体工具函数
-│   └── types/index.ts            # TypeScript 类型定义
-│
-├── functions/                    # Cloudflare Pages Functions
-│   ├── auth.ts                   # JWT 签发/验证/中间件
-│   ├── db.ts                     # D1 连接, Env 接口, 配置读取
-│   ├── task-processing.ts        # 图像/视频处理核心逻辑
-│   └── api/
-│       ├── auth/login.ts         # 登录
-│       ├── auth/register.ts      # 注册
-│       ├── auth/me.ts            # 当前用户
-│       ├── config.ts             # GET/PUT 系统配置
-│       ├── generate-prompt.ts    # POST 关键词 → LLM 生成提示词
-│       ├── generate-image.ts     # POST 直接生图 (旧端点)
-│       ├── polish.ts             # POST 提示词润色
-│       ├── tasks.ts              # 任务 CRUD (GET/POST/PUT/DELETE)
-│       ├── history.ts            # 历史记录管理
-│       ├── keywords.ts           # 关键词分组管理
-│       ├── models.ts             # 获取可用模型列表
-│       └── images.ts             # 从 R2 返回图片
-│
-├── queue-worker/                 # Queue Consumer Worker
-│   ├── task-consumer.ts          # 入口, 消费队列消息
-│   └── wrangler.toml             # 独立 wrangler 配置
-│
-├── db/migrations/                # D1 数据库迁移
-│   ├── 0000_init.sql             # 初始表结构
-│   └── 0001_task_request_json.sql # 增加 request_json 列
-│
-├── .github/workflows/
-│   └── deploy.yml                # GitHub Actions 自动部署
-│
-├── wrangler.toml                 # Pages 项目的 wrangler 配置
-├── next.config.js                # Next.js 配置 (静态导出)
-├── tailwind.config.ts            # Tailwind CSS 配置
-├── tsconfig.json                 # TypeScript 配置
-├── package.json                  # 依赖与脚本
-└── setup-cf.sh                   # 一键初始化脚本
+```text
+src/
+  app/            page.tsx（应用外壳）/ layout.tsx / globals.css
+  components/     Gate / Header / AuthProvider / ConfirmDialog / Toast / ThemeProvider
+                  KeywordSelector / ImageUploader / Gallery / ImageCard / TaskCard / FullscreenViewer
+    panels/       CreatePanel / TasksPanel / SettingsPanel
+  lib/            api.ts（类型化客户端）/ sizes.ts（尺寸档位表）
+  types/          前后端共享的响应类型
+
+functions/        Pages Functions = /api/*
+  lib/            env（配置）/ auth（会话）/ http（错误出口）/ llm / endpoints / media / validate
+  task-processing.ts   任务状态机 + 出图 + 定时维护
+  api/            auth/{login,logout,me} · config · generate-prompt · polish
+                  keywords · tasks · history · images
+
+queue-worker/     task-consumer.ts（queue + scheduled）
+db/migrations/    0000_init.sql · 0001_seed_keywords.sql
+tests/            vitest：auth / validate / media / sizes
 ```
 
 ---
 
-## 配置参考
+## API
 
-所有配置项存储在 D1 的 `config` 表中，支持密钥标记。后台管理页面提供可视化编辑。
+除登录外都需要会话 Cookie，未登录返回 `401`。所有响应是 `{ success, data }` 或 `{ success: false, error }`。
 
-### 模型端点
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/auth/login` | `{ password }` → 设置 HttpOnly Cookie |
+| `POST` | `/api/auth/logout` | 清除 Cookie |
+| `GET` | `/api/auth/me` | `{ authenticated, passwordConfigured }` |
+| `GET` | `/api/config` | 环境变量自检 + 当前生效值（**不回传密钥**） |
+| `POST` | `/api/config` | 用已配置的 LLM 端点拉一次 `/models` 验证连通性 |
+| `POST` | `/api/generate-prompt` | `{ keywords: [{ name }] }` → `{ prompt }` |
+| `POST` | `/api/polish` | `{ text }` → `{ text }` |
+| `GET` | `/api/keywords` | 全部分组与关键词 |
+| `POST` | `/api/keywords` | `{ groupId, name }` 加词 → `{ id }`；`{ name, slug, keywords[] }` 建组 → `{ id }`；`{ action: "reorder", groupId, orderedIds[] }` |
+| `DELETE` | `/api/keywords?group=N` \| `?id=N` | 删除分组（连带关键词）或单个关键词 |
+| `GET` | `/api/tasks?status=pending,processing&limit=50` | 任务列表（`limit` ≤ 200） |
+| `POST` | `/api/tasks` | `{ type: "image"\|"img2img", prompt?, keywords?, size?, image?: dataURI[] }` → `{ taskId }` |
+| `PUT` | `/api/tasks` | `{ id }` 重试失败任务 |
+| `DELETE` | `/api/tasks?id=N` | 删除任务记录（**不动 R2 文件**） |
+| `GET` | `/api/history?limit=30&before=<id>` | `{ items, hasMore, nextBefore }`，按 id 倒序分页 |
+| `DELETE` | `/api/history?id=N` | 删除记录 + 对应的 R2 文件 |
+| `GET` | `/api/images?file=<name>` | 生成结果，需登录 |
 
-| Key | 说明 | 默认值 |
-|-----|------|--------|
-| `llm_endpoint` | LLM API 地址 | `https://api.openai.com/v1` |
-| `llm_api_key` | LLM API Key (密钥) | — |
-| `llm_model` | LLM 模型名 | `gpt-4o` |
-| `image_endpoint` | 图像 API 地址 | 同 llm_endpoint |
-| `image_api_key` | 图像 API Key (密钥) | 同 llm_api_key |
-| `image_model` | 图像模型名 | `dall-e-3` |
-| `image_provider` | 图像接口类型 | `openai_image` |
-| `video_endpoint` | 视频 API 地址 | `https://apihub.agnes-ai.com` |
-| `video_api_key` | 视频 API Key (密钥) | — |
-| `video_model` | 视频模型名 | `agnes-video-v2.0` |
-
-### image_provider 说明
-
-| 值 | 图像请求格式 |
-|----|-------------|
-| `openai_image` | 文生图 `POST /images/generations`，图生图 `POST /images/edits` |
-| `agnes_image` | 统一 `POST /images/generations`，图像通过 `extra_body.image` 传递 |
-
-### 系统提示词
-
-| Key | 说明 |
-|-----|------|
-| `prompt_system_image` | 生图模式的 LLM 系统提示词 |
-| `prompt_system_video` | 视频模式的 LLM 系统提示词 |
-| `prompt_system_polish` | 润色模式的 LLM 系统提示词 |
+状态码：`400` 参数错误 · `401` 未登录 · `403` 跨站请求 · `404` 不存在 · `409` 冲突 · `429` 无（已移除限速）· `500` 服务异常（细节只进日志）· `502` 上游错误 · `504` 上游超时。
 
 ---
 
-## API 文档
-
-所有 API 需携带 Cookie 中的 JWT Token（通过 `/api/auth/login` 获取）。
-
-### 认证
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/auth/login` | 登录，body: `{ username, password }` |
-| `POST` | `/api/auth/register` | 注册（需 `ENABLE_REGISTRATION=true`） |
-| `GET` | `/api/auth/me` | 获取当前用户信息 |
-
-### 关键词
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/api/keywords` | 获取所有关键词分组 |
-| `POST` | `/api/keywords` | 创建/更新关键词分组 (admin) |
-
-### 生成
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/generate-prompt` | 关键词生成提示词<br>`{ keywords: [{ name, groupSlug, facetSlug }], mode?: "video" }` → `{ success, data: { prompt } }` |
-| `POST` | `/api/polish` | 润色提示词<br>`{ text, mode? }` → `{ success, data: { text } }` |
-| `POST` | `/api/generate-image` | 直接生图（不走队列）<br>`{ prompt, keywords?, size?, image? }` |
-
-### 任务
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/tasks` | 创建任务 `<br>{ type, keywords?, prompt?, size?, image?, width?, height?, num_frames?, frame_rate?, video_mode? }` → `{ success, data: { taskId } }` |
-| `GET` | `/api/tasks?status=pending,processing,failed` | 查询任务列表 |
-| `PUT` | `/api/tasks` | 重试失败任务<br>`{ id }` |
-| `DELETE` | `/api/tasks?id=N` | 删除任务 |
-
-### 历史 & 图片
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/api/history` | 获取历史记录 (DESC, LIMIT 50) |
-| `DELETE` | `/api/history?id=N` | 删除历史记录 |
-| `GET` | `/api/images?file=xxx.png` | 从 R2 返回图片 |
-
-### 配置
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/api/config` | 获取所有配置（密钥值显示为 `***`） |
-| `PUT` | `/api/config` | 更新配置<br>`{ key, value, isSecret? }` |
-
-### 错误响应格式
-
-```json
-{
-  "success": false,
-  "error": "描述信息"
-}
-```
-
-| HTTP Status | 含义 |
-|-------------|------|
-| 400 | 参数错误或配置缺失 |
-| 401 | 未登录 |
-| 500 | 内部错误 |
-| 502 | 上游模型 API 错误 |
-| 504 | 上游超时 (或 API Gateway 超时) |
-
----
-
-## 数据库设计
-
-### 核心表
+## 数据库
 
 ```sql
--- 用户
-users (id, username, password_hash, created_at)
+keyword_groups (id, name, slug UNIQUE, description, is_parameter_group, sort_order, created_at)
+keywords       (id, group_id → keyword_groups, name, sort_order, created_at)
 
--- 关键词分组 (如: 主体、环境、服装、风格...)
-keyword_groups (id, name, slug, sort_order, is_parameter_group, description)
+tasks (
+  id, status, type, prompt, keyword_names, size,
+  reference_image,   -- 逗号分隔的 R2 对象键（refs/...）
+  image_path,        -- /api/images?file=...
+  progress, error, created_at, updated_at
+)
 
--- 关键词 (含 selection_mode: single/multiple, max_select)
-keywords (id, group_id, name, sort_order, selection_mode, max_select)
-
--- 系统配置 (key/value 存储, is_secret 标记密钥)
-config (id, key, value, is_secret, updated_at)
-
--- 生成历史
-image_history (id, keyword_names, prompt, image_path, type, poster_path, size, created_at)
-
--- 异步任务 (含完整 request_json 用于重放)
-tasks (id, status, type, keyword_names, prompt, image_path,
-       reference_image, video_path, poster_path, progress,
-       size, error, request_json, created_at, updated_at)
+image_history (id, prompt, keyword_names, image_path, size, created_at)
 ```
 
-### 任务状态机
+没有 `users` / `config` / `login_attempts` 表——单密码模式下都用不到。
 
-```
-pending ──→ processing ──→ completed
-   │                          │
-   └──── failed ◀─────────────┘
-            │
-            └── (retry) → pending
-```
+> D1 单行上限 2MB。参考图在入队前先落 R2，列里只存对象键。
 
 ---
 
-## 部署指南
+## 安全模型
 
-### GitHub Actions
+| 层面 | 做法 |
+| --- | --- |
+| 入口 | 单密码门，无注册、无账号枚举面 |
+| 密码比较 | 双侧 SHA-256 + 定长异或比较，不泄露前缀匹配长度 |
+| 会话 | HS256 JWT，`HttpOnly; Secure; SameSite=Lax`，30 天 |
+| CSRF | 依赖 `SameSite=Lax`：跨站发起的 POST/PUT/DELETE 不会携带 Cookie |
+| 媒体 | 生成结果需登录；参考图只从 R2 读字节转发，**没有任何公网入口** |
+| 路径穿越 | 文件名过 `isSafeKey`（拒绝 `..` 与路径分隔符） |
+| 服务端校验 | 尺寸按格式 + 单边 256–4096 校验；文本超长截断；参考图限 3 张 / 8MB |
+| 响应头 | `public/_headers` 里的 CSP / HSTS / nosniff / frame-ancestors 等 |
+| 错误泄露 | 统一 `handleError`，内部细节只进日志 |
+| 供应链 | GitHub Actions 固定到 commit SHA |
 
-推送到 `master` 分支自动触发部署。需要以下 GitHub Secrets：
+---
 
-| Secret | 说明 |
-|--------|------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token (需 Pages/Workers/D1/R2/Queues 权限) |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID |
-
-部署流程：
-
-1. `npm ci` → `npm run build`
-2. 确保 `txt2img-task-queue` 存在 (不存在则创建)
-3. `wrangler pages deploy` — 部署 Pages
-4. `wrangler deploy --config queue-worker/wrangler.toml` — 部署 Queue Consumer
-
-### 手动部署
+## 开发
 
 ```bash
-# Pages
-npx wrangler pages deploy out --project-name=cf-text-to-image --branch=master
+npm install
+npm run dev              # 前端开发服务器
+npm run typecheck        # 三套 tsconfig：app / worker / tests
+npm run lint
+npm test
+npm run db:migrate:local
 
-# Worker
-npx wrangler deploy --config queue-worker/wrangler.toml
+cp .dev.vars.example .dev.vars   # 填好值
+npm run build && npm run pages:dev   # 含 Functions 的本地环境
 ```
 
-### 环境变量
+CI 在 push 和 PR 上跑：typecheck → lint → test → **用全新本地 D1 跑一遍全部迁移** → build。
 
-| 变量 | 位置 | 默认值 | 说明 |
-|------|------|--------|------|
-| `JWT_SECRET` | wrangler.toml vars | 内置默认 | JWT 签名密钥，生产环境建议覆盖 |
-| `ENABLE_REGISTRATION` | wrangler.toml vars | `"true"` | 是否允许注册 |
-| `LLM_ENDPOINT` | env vars / config 表 | — | 覆盖 D1 中的配置 |
-| `LLM_API_KEY` | env vars / config 表 | — | 覆盖 D1 中的密钥 |
-
-> **安全提示**：生产环境中应在 Cloudflare Dashboard 的 Pages 环境变量中设置 `JWT_SECRET` 和 API Key，而非硬编码在 `wrangler.toml`。
+那条迁移检查是有来由的：旧版的 `0002` 在任何新库上都会失败（`duplicate column name`），因为当时没有这道关卡，问题存在了很久都没被发现。
 
 ---
 
-## 可观测性
+## 已知限制
 
-Queue Consumer Worker 已启用 `observability`，所有日志通过 `console.log` 输出结构化 JSON，可在 Cloudflare Dashboard → Workers & Pages → `cf-text-to-image-task-consumer` → Logs 查看。
-
-### 日志事件速查表
-
-#### 请求方向 (→ 发给模型 API)
-
-| event | 含义 | 关键字段 |
-|-------|------|----------|
-| `→ image-req` | 图像 API 请求 | `endpoint, provider, model, size, requestBody` |
-| `→ video-req` | 视频 API 请求 | `endpoint, model, requestBody` |
-
-#### 响应方向 (← 模型 API 返回)
-
-| event | 含义 | 关键字段 |
-|-------|------|----------|
-| `← image-ok` | 图像生成成功 | `imagePath` |
-| `← image-err` | 图像生成失败 | `status, responseBody` |
-| `← video-ok` | 视频生成成功 | `videoUrl` |
-| `← video-err` | 视频生成失败 | `status, responseBody` |
-
-#### 任务生命周期 (task:)
-
-| event | 含义 |
-|-------|------|
-| `task:start` | 任务开始处理 (已获取锁) |
-| `task:fail` | 任务失败 (已写 error 到 DB) |
-| `task:lock-skip` | 乐观锁碰撞，跳过 (已被其他消费者处理) |
-| `task:skip-done` | 跳过已完成任务 |
-| `task:missing` | 任务不存在 |
-
-#### 队列层面 (scope: queue-consumer)
-
-| event | 含义 |
-|-------|------|
-| `batch-start` | 批次开始，含 `ids` 数组 |
-| `task-start` | 单个任务开始处理 |
-| `task-finish` | 单个任务处理完成 |
-| `batch-finish` | 批次处理完成 |
-
-### 排查工作流
-
-```
-1. 搜 taskId → 看是否有 batch-start (确认入队)
-2. 看 task:start (确认被消费且获得锁)
-3. 看 → image-req 的 requestBody (确认请求体正常)
-4. 看 ← image-err 的 responseBody 和 status (定位根因)
-5. 看 task:fail (确认错误已记录)
-```
+1. **`npm audit` 会残留 next / postcss 的告警。** 本项目是 `output: "export"` 纯静态导出，产物只有 HTML/JS/CSS，运行时不跑 Next 服务端，Image Optimizer / Server Actions / middleware / RSC 反序列化这几类漏洞不可达（`images.unoptimized: true` 也已关闭图片优化端点）。CI 里 `npm audit` 只提示不阻塞。彻底消除需要升到 Next 16（React 19），属于破坏性升级。
+2. **单用户模型**，没有多租户隔离与按用户配额。要开放给多人用，需要给 `tasks` / `image_history` 加 `user_id` 并恢复角色体系。
+3. **只支持单张/generations 协议**，不支持 `agnes` 那类需要公网 URL 的网关。
+4. **参考图不支持外链**，这是刻意的 SSRF 取舍。
+5. **无登录限速**。请务必使用足够强的 `ACCESS_PASSWORD`。
+6. **GitHub Actions 固定到 commit SHA**，需要 Dependabot 之类的工具跟进更新。
 
 ---
 
-## 常见问题
+## 许可
 
-### Q: 为什么任务报 504 错误？
-
-A: 504 有两种情况：
-
-1. **前端提交时 504** — Pages Function 调用 LLM 超时。已通过 25s AbortController 超时保护修复，会返回 JSON 错误而非空白页
-2. **任务处理时 504** — Queue Worker 调图像 API 超时。这是上游模型 API 网关的超时 (`error code: 504`)，说明模型生成太慢，超过了 API 网关的超时阈值。解决方向：调大 API 网关超时、换更快模型、或加重试机制
-
-**排查方法**：在 Cloudflare Logs 搜 `← image-err`，看 `responseBody` 是否包含 `error code: 504`。
-
-### Q: 连续点击能同时生成多张图吗？
-
-A: 能。当前 Queue Worker 配置 `max_concurrency = 10`，最多同时处理 10 个任务。超过 10 个的任务在队列中排队等候。
-
-### Q: 生成提示词和提交生图冲突吗？
-
-A: 不冲突。前端有独立的 `textActionLock` 防止重复触发提示词生成；而提交生图走的是异步队列，有独立的提交锁。两者可同时操作。
-
-### Q: 提示词生成返回"调用超时"？
-
-A: 说明 LLM 响应超过了 25s。可能是模型负载高或 prompt 太长。稍后重试即可。
-
-### Q: Cloudflare 里有两个服务，是什么关系？
-
-A: `cf-text-to-image` (Pages) 是用户访问的站点；`cf-text-to-image-task-consumer` (Worker) 是后台消费者，处理队列中的生图/视频任务。用户不直接访问 Worker。
-
-### Q: 如何修改生成的图片尺寸？
-
-A: 在"输出规格"关键词组中选择比例 (1:1, 9:16, 16:9, 4:3, 3:4) 和分辨率 (512~2048)。不选则默认 1024x1024。
-
-### Q: 支持哪些图像模型？
-
-A: 理论支持所有 OpenAI 兼容接口。已测试：
-- OpenAI 原生 (`openai_image`) — `gpt-image-2`, `dall-e-3`
-- Agnes 网关 (`agnes_image`) — 通过 `extra_body` 传参
-
-### Q: 数据库怎么备份？
-
-A: Cloudflare D1 自带时间点恢复 (Point-in-Time Recovery)。也可通过 `wrangler d1 export txt2img-db --remote` 导出。
-
----
-
-## 经验总结
-
-### 请求体兼容性
-
-不同 provider 的请求体格式有细微差异，需严格测试：
-
-- OpenAI `n: 1` 参数在某些代理网关上会触发 504（已移除）
-- `thinking: { type: "disabled" }` 非所有 API 支持
-- Agnes provider 的图像通过 `extra_body.image` 传递，而非顶层 `image` 字段
-
-### 并发设计演变
-
-| 阶段 | 方案 | 并发 |
-|------|------|------|
-| v1 | 请求内同步调模型 API | 受 Pages Function 时限限制，504 频繁 |
-| v2 | 双队列 (A/B) 按 taskId 奇偶分流 | 2 (每条队列串行) |
-| v3 | 单队列 + `max_concurrency = 10` | 10 |
-
-当前 v3 方案更简洁：一个 Queue + 一个 Worker + `max_concurrency` 控制并发。
-
-### 架构决策记录
-
-1. **Queue 而非直接调用** — Pages Function 有时长限制（免费 10s/付费 30s），图像/视频生成远超此时限，必须异步
-2. **乐观锁而非悲观锁** — D1 不支持行级锁，使用 `UPDATE … WHERE status IN ('pending','failed')` 实现轻量级并发控制
-3. **request_json 快照** — 任务创建时保存完整请求 JSON，避免重试时前端状态丢失
-4. **结构化日志** — 用 `→` `←` 箭头区分请求/响应方向，用 `task:` 前缀标记生命周期事件
-
----
-
-## 维护与贡献
-
-### 新增 API 端点
-
-1. 在 `functions/api/` 下创建文件，导出 `onRequest[Method]` 函数
-2. 路由即文件名：`functions/api/foo.ts` → `GET /api/foo`
-3. 使用 `requireAuth(context.env, context.request)` 做身份验证
-
-### 新增模型 Provider
-
-1. 在 `task-processing.ts` 的 `processImage()` 中添加新的 provider 分支
-2. 确保 `reqBody` 格式匹配该 provider 的 API 规范
-3. 在后台管理 / README 中补充 provider 说明
-
-### 本地开发
-
-```bash
-npm run dev              # Next.js dev server
-npm run pages:dev        # wrangler pages dev (模拟 CF 环境)
-npm run db:migrate:local # 本地 D1 迁移
-```
-
-### 提交规范
-
-- `feat:` — 新功能
-- `fix:` — Bug 修复
-- `debug:` — 日志 / 可观测性改进
-- `ci:` — CI/CD 变更
-- `docs:` — 文档更新
-
----
-
-## 致谢
-
-- [Cloudflare](https://cloudflare.com) — Pages / Workers / D1 / R2 / Queues
-- [Next.js](https://nextjs.org) — React 框架
-- [Tailwind CSS](https://tailwindcss.com) — 样式框架
-- [Drizzle ORM](https://orm.drizzle.team) — TypeScript ORM
-- [jose](https://github.com/panva/jose) — JWT 库
-
----
-
-<p align="center">
-  <sub>Made with ❤️ by wooxi · Deployed on Cloudflare</sub>
-</p>
+[MIT](./LICENSE)

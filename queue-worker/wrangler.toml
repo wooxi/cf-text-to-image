@@ -2,10 +2,17 @@ name = "cf-text-to-image-task-consumer"
 main = "task-consumer.ts"
 compatibility_date = "2025-06-01"
 
+# 消费者只需要图像模型配置（与 Pages 上保持一致）：
+#   wrangler secret put IMAGE_ENDPOINT --config queue-worker/wrangler.toml
+#   wrangler secret put IMAGE_API_KEY  --config queue-worker/wrangler.toml
+#   wrangler secret put IMAGE_MODEL    --config queue-worker/wrangler.toml
+# 它不处理鉴权，也不需要 SESSION_SECRET / LLM_* / ACCESS_PASSWORD。
+
 [[d1_databases]]
 binding = "DB"
 database_name = "txt2img-db"
-database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
+# 由 setup-cf.sh 自动写入；手动部署时请替换为你自己的 D1 ID
+database_id = "REPLACE_WITH_YOUR_D1_ID"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
@@ -13,7 +20,7 @@ bucket_name = "txt2img-images"
 
 [observability]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.1
 
 [[queues.consumers]]
 queue = "txt2img-task-queue"
@@ -21,3 +28,7 @@ max_batch_size = 1
 max_batch_timeout = 0
 max_retries = 1
 max_concurrency = 10
+
+# 每天 03:00 UTC：给卡死的 processing 任务收尸，清理 7 天前的参考图
+[triggers]
+crons = ["0 3 * * *"]

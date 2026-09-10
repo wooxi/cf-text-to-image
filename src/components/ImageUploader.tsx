@@ -1,65 +1,113 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "./Toast";
 
 interface Props {
   images: string[];
   onChange: (images: string[]) => void;
-  allowUpload?: boolean;
-  allowDataUri?: boolean;
-  hint?: string;
   maxImages?: number;
 }
 
 const MAX_FILE_MB = 5;
+const ACCEPTED = /^image\/(png|jpeg|webp|gif|avif)$/;
 
-export default function ImageUploader({ images, onChange, allowUpload = true, allowDataUri = true, hint = "支持多张 JPG、PNG、WebP", maxImages = 3 }: Props) {
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+export default function ImageUploader({
+  images,
+  onChange,
+  maxImages = 3,
+}: Props) {
   const toast = useToast();
   const [dragging, setDragging] = useState(false);
-  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const addImage = (image: string) => {
-    if (images.length >= maxImages) { toast.error(`最多 ${maxImages} 张参考图`); return; }
-    onChange([...images, image]);
-  };
-  const removeImage = (image: string) => onChange(images.filter((item) => item !== image));
+  /**
+   * 一次性把整批图片并入 state。
+   * 旧实现让每个文件的 onload 各自调用 onChange([...images, image])，
+   * 每次读到的都是同一份旧数组，所以拖入 3 张只会留下最后一张。
+   */
+  const addAll = useCallback(
+    (incoming: string[]) => {
+      const room = Math.max(0, maxImages - images.length);
+      if (incoming.length > room) {
+        toast.error(`最多 ${maxImages} 张参考图，已忽略多余的部分`);
+      }
+      if (room > 0) onChange([...images, ...incoming.slice(0, room)]);
+    },
+    [images, maxImages, onChange, toast],
+  );
 
-  const handleFile = (file: File) => {
-    if (!file.type.startsWith("image/")) { toast.error("请选择图片文件"); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`图片不能超过 ${MAX_FILE_MB}MB`); return; }
-    const reader = new FileReader();
-    reader.onload = () => addImage(reader.result as string);
-    reader.readAsDataURL(file);
-  };
+  const handleFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      const list = Array.from(files ?? []).filter((file) =>
+        file.type.startsWith("image/"),
+      );
+      if (!list.length) return;
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files) return;
-    Array.from(files).forEach(handleFile);
-  };
+      const invalid = list.find((file) => !ACCEPTED.test(file.type));
+      if (invalid) {
+        toast.error("仅支持 PNG / JPEG / WebP / GIF / AVIF");
+        return;
+      }
+      const oversized = list.find(
+        (file) => file.size > MAX_FILE_MB * 1024 * 1024,
+      );
+      if (oversized) {
+        toast.error(`单张图片不能超过 ${MAX_FILE_MB}MB`);
+        return;
+      }
 
-  const addUrl = () => {
-    const value = url.trim();
-    if (!value) return;
-    if (!/^https?:\/\//i.test(value) && (!allowDataUri || !value.startsWith("data:image/"))) {
-      toast.error(allowDataUri ? "请输入公网图片 URL 或 Data URI" : "请输入公网图片 URL");
-      return;
-    }
-    addImage(value);
-    setUrl("");
-  };
+      setBusy(true);
+      try {
+        addAll(await Promise.all(list.map(readFile)));
+      } catch {
+        toast.error("图片读取失败");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [addAll, toast],
+  );
+
+  // 支持直接 Ctrl/⌘+V 粘贴截图
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const files = Array.from(event.clipboardData?.files ?? []);
+      if (!files.length) return;
+      event.preventDefault();
+      void handleFiles(files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [handleFiles]);
 
   return (
     <div className="space-y-3">
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {images.map((image) => (
-            <div key={image} className="relative inline-block group">
-              <img src={image} className="w-24 h-24 object-cover rounded-lg border border-[var(--border)]" alt="参考图" />
+          {images.map((image, index) => (
+            <div key={index} className="group relative">
+              <img
+                src={image}
+                alt={`参考图 ${index + 1}`}
+                className="h-24 w-24 rounded-lg border object-cover"
+                style={{ borderColor: "var(--border)" }}
+              />
               <button
-                onClick={() => removeImage(image)}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                type="button"
+                aria-label={`移除参考图 ${index + 1}`}
+                onClick={() => onChange(images.filter((_, i) => i !== index))}
+                className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
               >
                 ✕
               </button>
@@ -68,39 +116,52 @@ export default function ImageUploader({ images, onChange, allowUpload = true, al
         </div>
       )}
 
-      {allowUpload && (
-        <div
-          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition ${
-            dragging ? "border-[var(--accent)] bg-[var(--accent-light)]" : "border-[var(--border)]"
-          }`}
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
-          onClick={() => fileRef.current?.click()}
-        >
-          <p className="text-sm text-[var(--text-muted)]">拖拽图片到此处，或点击上传</p>
-          <p className="text-xs text-[var(--text-muted)] mt-1 opacity-60">{hint}</p>
-        </div>
-      )}
-
-      <div className="flex gap-2">
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          className="flex-1 px-3 py-2 bg-app-bg border border-app-border rounded-lg text-sm text-app-text focus:outline-none"
-          placeholder={allowDataUri ? "粘贴公网图片 URL 或 Data URI" : "粘贴公网图片 URL"}
-        />
-        <button
-          type="button"
-          onClick={addUrl}
-          className="px-3 py-2 rounded-lg text-sm text-white"
-          style={{ background: "var(--accent)" }}
-        >
-          添加
-        </button>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => !busy && fileRef.current?.click()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            fileRef.current?.click();
+          }
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          void handleFiles(event.dataTransfer.files);
+        }}
+        className="cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-base"
+        style={{
+          borderColor: dragging ? "var(--accent)" : "var(--border)",
+          background: dragging ? "var(--accent-light)" : "transparent",
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          {busy ? "读取中…" : "点击选择、拖拽到此处，或直接 Ctrl/⌘+V 粘贴"}
+        </p>
+        <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+          单张 ≤ {MAX_FILE_MB}MB · 最多 {maxImages} 张
+        </p>
       </div>
 
-      {allowUpload && <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          void handleFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
     </div>
   );
 }

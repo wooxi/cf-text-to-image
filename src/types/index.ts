@@ -1,48 +1,71 @@
-export type KeywordSelectionMode = "single" | "multi";
+export interface Keyword {
+  id: number;
+  name: string;
+}
 
 export interface KeywordGroup {
   id: number;
   name: string;
   slug: string;
-  description?: string;
-  parameterGroup?: boolean;
-  facets?: KeywordFacet[];
+  description: string;
+  isParameterGroup: boolean;
   keywords: Keyword[];
-}
-
-export interface KeywordFacet {
-  slug: string;
-  name: string;
-  description?: string;
-  selectionMode: KeywordSelectionMode;
-  maxSelect?: number;
-  keywords: Keyword[];
-}
-
-export interface Keyword {
-  id: number;
-  groupId: number;
-  name: string;
-  facetSlug?: string;
 }
 
 export interface ImageRecord {
   id: number;
-  keywordNames: string;
   prompt: string;
+  keywordNames: string;
   imagePath: string;
-  type: string;
-  posterPath: string;
+  size: string;
   createdAt: string;
 }
 
-export interface ConfigItem {
-  key: string;
-  value: string;
+export type TaskStatus = "pending" | "processing" | "completed" | "failed";
+
+export interface TaskRecord {
+  id: number;
+  status: TaskStatus;
+  type: string;
+  prompt: string;
+  keywordNames: string;
+  imagePath: string;
+  size: string;
+  progress: number;
+  error: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface ApiResponse<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: string;
+export interface HistoryPage {
+  items: ImageRecord[];
+  hasMore: boolean;
+  nextBefore: number | null;
 }
+
+export interface ConfigStatus {
+  required: readonly { key: string; scope: string }[];
+  missing: string[];
+  resolved: {
+    llmEndpoint: string;
+    llmModel: string;
+    imageEndpoint: string;
+    imageModel: string;
+    promptSystemImage: string;
+    promptSystemPolish: string;
+  };
+  overrides: { image: boolean; polish: boolean };
+}
+
+export interface PingResult {
+  reachable: boolean;
+  status?: number;
+  models?: string[];
+}
+
+export interface AuthState {
+  authenticated: boolean;
+  passwordConfigured: boolean;
+}
+
+export type TaskType = "image" | "img2img";

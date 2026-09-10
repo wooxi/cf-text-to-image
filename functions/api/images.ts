@@ -1,34 +1,31 @@
-// Serve images from R2 bucket via API endpoint
-import type { Env } from "../db";
+import { handleError, HttpError } from "../lib/http";
+import type { Env } from "../lib/env";
+import { requireAuth } from "../lib/auth";
+import { IMAGE_PREFIX, contentTypeForExt, isSafeKey } from "../lib/media";
 
-export async function onRequestGet(context: { request: Request; env: Env }) {
+/** GET /api/images?file=<name> — 生成结果，必须登录。 */ export async function onRequestGet(context: {
+  request: Request;
+  env: Env;
+}): Promise<Response> {
   try {
-    const url = new URL(context.request.url);
-    const file = url.searchParams.get("file");
-    if (!file) {
-      return new Response("Missing file param", { status: 400 });
-    }
+    await requireAuth(context.env, context.request);
 
-    // Sanitize: allow alphanumeric, dash, underscore, dot, and slash for subdirs
-    // Prevent path traversal (no .. allowed)
-    if (file.includes("..") || !/^[a-zA-Z0-9_\-./]+$/.test(file)) {
-      return new Response("Invalid filename", { status: 400 });
-    }
+    const file = new URL(context.request.url).searchParams.get("file") ?? "";
+    if (!isSafeKey(file)) throw new HttpError(400, "文件名不合法");
 
-    const r2Key = "images/" + file;
-    const object = await context.env.IMAGES_BUCKET.get(r2Key);
-    if (!object) {
-      return new Response("Image not found", { status: 404 });
-    }
+    const object = await context.env.IMAGES_BUCKET.get(IMAGE_PREFIX + file);
+    if (!object) throw new HttpError(404, "文件不存在");
 
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("Cache-Control", "public, max-age=31536000, immutable");
-    headers.set("Access-Control-Allow-Origin", "*");
-    headers.set("etag", object.httpEtag);
-
-    return new Response(object.body, { headers });
+    const ext = file.split(".").pop() ?? "";
+    return new Response(object.body, {
+      headers: {
+        "Content-Type":
+          object.httpMetadata?.contentType || contentTypeForExt(ext),
+        // 文件名是 UUID 且内容不可变；private 让浏览器缓存，但不让共享缓存复用给他人
+        "Cache-Control": "private, max-age=31536000, immutable",
+      },
+    });
   } catch (e) {
-    return new Response("Internal error", { status: 500 });
+    return handleError("images:get", e, "读取图片失败");
   }
 }

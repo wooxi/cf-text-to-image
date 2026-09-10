@@ -1,52 +1,88 @@
-import { requireAdmin, isHttpError } from "../auth";
-import { getConfigs } from "../db";
-import type { Env } from "../db";
+import { handleError, ok, fail } from "../lib/http";
+import {
+  DEFAULT_IMAGE_PROMPT,
+  DEFAULT_POLISH_PROMPT,
+  ENV_VARS,
+  getLlmSettings,
+  missingEnvVars,
+} from "../lib/env";
+import type { Env } from "../lib/env";
+import { requireAuth } from "../lib/auth";
+import { normalizeEndpoint } from "../lib/endpoints";
 
-const SECRET_KEYS = ["llm_api_key", "image_api_key", "video_api_key"];
-const MASK = "••••••••（已设置）";
+const PING_TIMEOUT_MS = 15_000;
 
-export async function onRequestGet(context: { request: Request; env: Env }) {
+/** GET /api/config — 环境变量自检 + 当前生效的非机密配置。密钥永不回传。 */
+export async function onRequestGet(context: {
+  request: Request;
+  env: Env;
+}): Promise<Response> {
   try {
-    await requireAdmin(context.env, context.request);
-    const values = await getConfigs(context.env);
-    const map: Record<string, string> = {};
-    for (const [key, value] of Object.entries(values)) {
-      map[key] = SECRET_KEYS.includes(key) ? (value ? MASK : "") : value;
-    }
-    return Response.json({ success: true, data: map });
+    await requireAuth(context.env, context.request);
+    const env = context.env;
+
+    return ok({
+      required: ENV_VARS,
+      missing: missingEnvVars(env),
+      resolved: {
+        llmEndpoint: env.LLM_ENDPOINT?.trim() ?? "",
+        llmModel: env.LLM_MODEL?.trim() ?? "",
+        imageEndpoint: env.IMAGE_ENDPOINT?.trim() ?? "",
+        imageModel: env.IMAGE_MODEL?.trim() ?? "",
+        promptSystemImage:
+          env.PROMPT_SYSTEM_IMAGE?.trim() || DEFAULT_IMAGE_PROMPT,
+        promptSystemPolish:
+          env.PROMPT_SYSTEM_POLISH?.trim() || DEFAULT_POLISH_PROMPT,
+      },
+      overrides: {
+        image: Boolean(env.PROMPT_SYSTEM_IMAGE?.trim()),
+        polish: Boolean(env.PROMPT_SYSTEM_POLISH?.trim()),
+      },
+    });
   } catch (e) {
-    if (isHttpError(e)) return Response.json({ success: false, error: e.message }, { status: e.status });
-    return Response.json({ success: false, error: "获取配置失败" }, { status: 500 });
+    return handleError("config:get", e, "读取状态失败");
   }
 }
 
-export async function onRequestPut(context: { request: Request; env: Env }) {
+/** POST /api/config — 用已配置的 LLM 端点与密钥拉一次模型列表，验证连通性。 */
+export async function onRequestPost(context: {
+  request: Request;
+  env: Env;
+}): Promise<Response> {
   try {
-    await requireAdmin(context.env, context.request);
-    const body = await context.request.json() as Record<string, string>;
-    const now = new Date().toISOString();
-    const stmts: D1PreparedStatement[] = [];
+    await requireAuth(context.env, context.request);
+    const settings = getLlmSettings(context.env);
 
-    for (const [key, value] of Object.entries(body)) {
-      if (typeof value !== "string" || !key) continue;
-      if (value.includes("••")) continue; // 掩码占位符原样回传时跳过，不覆盖真实值
-      const isSecret = SECRET_KEYS.includes(key) ? 1 : 0;
-      stmts.push(
-        context.env.DB.prepare(
-          "INSERT INTO config (key, value, is_secret, updated_at) VALUES (?, ?, ?, ?) " +
-          "ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_secret = excluded.is_secret, updated_at = excluded.updated_at"
-        ).bind(key, value, isSecret, now),
-      );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(normalizeEndpoint(settings.endpoint) + "/models", {
+        headers: { Authorization: `Bearer ${settings.apiKey}` },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
     }
 
-    if (stmts.length) await context.env.DB.batch(stmts);
-    return Response.json({ success: true });
-  } catch (e) {
-    if (isHttpError(e)) return Response.json({ success: false, error: e.message }, { status: e.status });
-    return Response.json({ success: false, error: "保存失败" }, { status: 500 });
-  }
-}
+    if (!response.ok) return ok({ reachable: false, status: response.status });
 
-export async function onRequestOptions() {
-  return new Response(null, { headers: { Allow: "GET, PUT, OPTIONS" } });
+    const data = (await response.json()) as {
+      data?: unknown[];
+      models?: unknown[];
+    };
+    const models = [...(data.data ?? []), ...(data.models ?? [])]
+      .map((entry) => {
+        const item = entry as { id?: string; name?: string };
+        return item.id ?? item.name ?? "";
+      })
+      .filter(Boolean)
+      .sort();
+
+    return ok({ reachable: true, models });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError")
+      return fail("请求超时", 504);
+    return handleError("config:ping", e, "连通性检测失败");
+  }
 }

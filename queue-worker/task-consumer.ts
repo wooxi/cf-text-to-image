@@ -1,26 +1,24 @@
-import { processTaskById, ModelApiError } from "../functions/task-processing";
-import type { Env } from "../functions/db";
+import {
+  processTaskById,
+  runMaintenance,
+  ModelApiError,
+} from "../functions/task-processing";
+import type { Env } from "../functions/lib/env";
 
 interface QueueMessage {
   taskId: number;
 }
 
-function logConsumer(event: string, payload: Record<string, unknown>) {
+function log(event: string, payload: Record<string, unknown>) {
   console.log(JSON.stringify({ scope: "queue-consumer", event, ...payload }));
 }
 
 export default {
   async queue(batch: MessageBatch<QueueMessage>, env: Env): Promise<void> {
-    logConsumer("batch-start", {
-      queue: batch.queue,
-      size: batch.messages.length,
-      ids: batch.messages.map((m) => m.body?.taskId).filter(Boolean),
-    });
-
     for (const message of batch.messages) {
-      const taskId = Number(message.body?.taskId || 0);
-      if (!taskId) {
-        logConsumer("skip-invalid", { body: message.body });
+      const taskId = Number(message.body?.taskId);
+      if (!Number.isInteger(taskId) || taskId <= 0) {
+        log("skip-invalid", { body: message.body });
         message.ack();
         continue;
       }
@@ -29,19 +27,32 @@ export default {
         await processTaskById(env, taskId);
         message.ack();
       } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
+        const detail = error instanceof Error ? error.message : String(error);
+        // 上游业务错误已落库；基础设施异常重投一次（max_retries = 1）后放弃
         if (error instanceof ModelApiError || message.attempts > 1) {
-          // 预期失败或重投仍失败：终止投递，任务已在 DB 中标记 failed
-          logConsumer("task-give-up", { taskId, error: text });
+          log("task-give-up", { taskId, error: detail });
           message.ack();
         } else {
-          // 基础设施异常（DB/存储等）：触发队列重投（max_retries = 1）
-          logConsumer("task-retry", { taskId, error: text });
+          log("task-retry", { taskId, error: detail });
           message.retry();
         }
       }
     }
+  },
 
-    logConsumer("batch-finish", { queue: batch.queue, size: batch.messages.length });
+  async scheduled(
+    _event: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(
+      runMaintenance(env).then(
+        (result) => log("maintenance-ok", result),
+        (error) =>
+          log("maintenance-error", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      ),
+    );
   },
 };

@@ -1,71 +1,95 @@
 "use client";
 
-import Link from "next/link";
-import { useTheme } from "@/components/ThemeProvider";
-import { useState, useEffect } from "react";
+import { useTheme } from "./ThemeProvider";
+import { useAuth } from "./AuthProvider";
+import { useConfirm } from "./ConfirmDialog";
 
-export default function Header() {
+export default function Header({
+  onOpenSettings,
+}: {
+  onOpenSettings: () => void;
+}) {
   const { theme, toggle } = useTheme();
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  const { logout } = useAuth();
+  const confirm = useConfirm();
 
   return (
     <header
-      className="sticky top-0 z-40 border-b transition-all duration-300"
+      className="sticky top-0 z-40 border-b backdrop-blur-xl"
       style={{
-        borderColor: scrolled ? "var(--border)" : "transparent",
-        background: scrolled ? "var(--bg-elevated)" : "transparent",
-        backdropFilter: scrolled ? "blur(24px) saturate(1.2)" : "none",
-        WebkitBackdropFilter: scrolled ? "blur(24px) saturate(1.2)" : "none",
+        borderColor: "var(--border)",
+        background: "var(--bg-elevated, var(--bg-secondary))",
       }}
     >
-      <div className="flex items-center justify-between px-3 py-2 sm:px-5 sm:py-2.5">
-        <Link href="/" className="group flex items-center gap-2.5 shrink-0">
-          <img src="/icon.svg" alt="Logo" className="h-8 w-8 sm:h-9 sm:w-9 transition-transform duration-300 group-hover:scale-110" />
-          <div className="hidden sm:block">
-            <div className="text-[10px] uppercase tracking-[0.28em] font-medium" style={{ color: "var(--text-muted)" }}>
-              Text to Image Studio
-            </div>
-            <div className="text-sm font-semibold tracking-[0.02em]" style={{ color: "var(--text-primary)" }}>
+      <div className="flex items-center justify-between gap-3 px-3 py-2 sm:px-5 sm:py-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <img src="/icon.svg" alt="" className="h-7 w-7 shrink-0" />
+          <div className="min-w-0">
+            <div
+              className="truncate text-sm font-semibold"
+              style={{ color: "var(--text-primary)" }}
+            >
               文生图工作室
             </div>
+            <div
+              className="hidden text-[10px] uppercase tracking-[0.22em] sm:block"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Text to Image Studio
+            </div>
           </div>
-        </Link>
+        </div>
 
-        <nav className="flex items-center gap-1 sm:gap-1.5">
-          <Link href="/" className="rounded-full border px-3 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
+        <nav className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="rounded-full border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--border-hover)]"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+            title="设置"
           >
-            创作台
-          </Link>
-          
-          <Link href="/admin" className="rounded-full border px-3 py-1.5 text-xs sm:text-sm font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "transparent" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; e.currentTarget.style.background = "transparent"; }}
+            <span aria-hidden>⚙️</span>
+            <span className="ml-1 hidden sm:inline">设置</span>
+          </button>
+          <button
+            type="button"
+            onClick={toggle}
+            className="rounded-full border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--border-hover)]"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
+            title={theme === "dark" ? "切换浅色" : "切换深色"}
           >
-            ⚙️ 后台管理
-          </Link>
-          
-          <button onClick={toggle} className="rounded-full border px-2.5 py-1.5 text-xs font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
-            style={{ background: "var(--bg-secondary)", borderColor: "var(--border)", color: "var(--text-secondary)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--border-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
-            title={theme === "dark" ? "切换明亮模式" : "切换暗黑模式"}
+            <span aria-hidden>{theme === "dark" ? "☀️" : "🌙"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              if (
+                await confirm({
+                  title: "退出登录？",
+                  message: "需要重新输入访问密码才能继续使用。",
+                  confirmLabel: "退出",
+                  danger: true,
+                })
+              ) {
+                await logout();
+              }
+            }}
+            className="rounded-full border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--danger)] hover:text-[var(--danger)]"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
           >
-            <span className="text-sm leading-none">{theme === "dark" ? "☀️" : "🌙"}</span>
-            <span className="hidden sm:inline">{theme === "dark" ? "浅色" : "深色"}</span>
+            退出
           </button>
         </nav>
       </div>
     </header>
   );
 }
-

@@ -1,51 +1,79 @@
-name: Deploy to Cloudflare Pages
+name: Deploy to Cloudflare
 
 on:
   push:
     branches: [master]
+  pull_request:
 
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-
     steps:
-      - uses: actions/checkout@v4
+      # 固定到 commit SHA（v4 轻量标签）：可变的 tag 引用是供应链攻击面
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npx tsc --noEmit -p tsconfig.worker.json
+
+      - name: Typecheck (app / worker / tests)
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # 用全新的本地 D1 跑一遍迁移。
+      # 历史上有一次迁移在任何新库上都会失败（duplicate column name），
+      # 因为没有这一步，问题存在了很久都没被发现。
+      - name: Verify migrations apply to a fresh database
+        run: |
+          set -euo pipefail
+          for f in ./db/migrations/*.sql; do
+            echo "▶ applying $f"
+            npx wrangler d1 execute txt2img-db --local -y --file="$f"
+          done
+
+      - name: Build
+        run: npm run build
+
+      # 仅提示，不阻塞：残留项都在 next / postcss 这类构建期依赖上，
+      # 本项目是 output: "export" 纯静态导出，Next 服务端不受影响（详见 README）。
+      - name: Dependency audit (informational)
+        run: npm audit --omit=dev || true
+
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      # 固定到 commit SHA（v4 轻量标签）：可变的 tag 引用是供应链攻击面
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
       - run: npm run build
 
       - name: Ensure Queue exists
         run: npx wrangler queues create txt2img-task-queue || true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare Pages
         run: npx wrangler pages deploy out --project-name=cf-text-to-image --branch=master
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Queue Consumer Worker
         run: npx wrangler deploy --config queue-worker/wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Clean up old queues
-        run: |
-          npx wrangler queues delete txt2img-task-queue-a || true
-          npx wrangler queues delete txt2img-task-queue-b || true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

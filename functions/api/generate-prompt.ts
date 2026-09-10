@@ -1,87 +1,46 @@
-import { requireAuth, HttpError, isHttpError } from "../auth";
-import { getConfigs } from "../db";
-import type { Env } from "../db";
+import { handleError, ok, readJson, HttpError } from "../lib/http";
+import { getLlmSettings } from "../lib/env";
+import type { Env } from "../lib/env";
+import { requireAuth } from "../lib/auth";
+import { chatCompletion } from "../lib/llm";
 
-function normalizeEndpoint(endpoint: string): string {
-  let url = endpoint.replace(/\/+$/, "");
-  if (!/\/\/[^/]+\/.+/.test(url)) url += "/v1";
-  return url;
-}
+const MAX_KEYWORDS = 80;
 
-const DEFAULT_IMAGE_PROMPT = `你是一位顶尖的创意导演和商业摄影师，擅长从关键词卡片生成有氛围感、有随机惊喜的画面描述。你的任务是根据用户选择的分类关键词，生成一段可直接用于生图的中文提示词。
-
-核心规则：
-1. 纯中文输出：只输出一段通顺完整的中文画面描述。不加英文，不加"画面描述："等标题，不加任何解释、前缀。直接从描述内容开始写。
-2. 包含画面主体、环境/背景、光线、风格、构图、氛围等要素。
-3. 长度控制在 80-300 字之间，自然流畅，不要机械分段。
-4. 安全准则：用衣物配饰自然覆盖身体，用光影和构图引导视线，避免写裸体/透视/暗示性内容。`;
-
-const DEFAULT_VIDEO_PROMPT = `你是一位顶尖的视频导演，擅长将关键词转化为生动的视频画面描述。
-
-核心规则：
-1. 纯中文输出：只输出一段通顺完整的中文画面描述。
-2. 补充镜头运动（推拉摇移）、动作节奏、光影变化等动态要素。
-3. 长度控制在 80-300 字之间，一段话写完，不要分段。
-4. 描述要有时间流动感，体现视频的动态特征。`;
-
-const LLM_TIMEOUT_MS = 90_000;
-
-export async function onRequestPost(context: { request: Request; env: Env }) {
+/** POST /api/generate-prompt — 关键词 → 画面描述。 */
+export async function onRequestPost(context: {
+  request: Request;
+  env: Env;
+}): Promise<Response> {
   try {
     await requireAuth(context.env, context.request);
-    const { keywords, mode } = await context.request.json() as { keywords?: any[]; mode?: string };
+    const settings = getLlmSettings(context.env);
 
-    const config = await getConfigs(context.env);
-    const endpoint = normalizeEndpoint(config.llm_endpoint || "https://api.openai.com/v1");
-    const apiKey = config.llm_api_key;
-    const model = config.llm_model || "gpt-4o";
-    if (!apiKey) throw new HttpError(400, "请先在后台管理页设置 LLM API Key");
-
-    const keywordNames = Array.isArray(keywords)
-      ? keywords.map((k: any) => k.name || k).join(", ")
-      : "";
-    const isVideo = mode === "video";
-    const systemPrompt = isVideo
-      ? (config.prompt_system_video || DEFAULT_VIDEO_PROMPT)
-      : (config.prompt_system_image || DEFAULT_IMAGE_PROMPT);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
-    try {
-      const response = await fetch(endpoint + "/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `请根据以下关键词生成画面描述：${keywordNames}` },
-          ],
-          temperature: 0.9,
-          max_tokens: 4096,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        return Response.json({ success: false, error: `LLM 调用失败 (${response.status}): ${errText.slice(0, 300)}` }, { status: 502 });
-      }
-
-      const data = await response.json() as any;
-      const prompt = data.choices?.[0]?.message?.content?.trim();
-      if (!prompt) return Response.json({ success: false, error: "生成结果为空" }, { status: 502 });
-      return Response.json({ success: true, data: { prompt } });
-    } finally {
-      clearTimeout(timeoutId);
+    const body = await readJson<{ keywords?: { name?: unknown }[] }>(
+      context.request,
+    );
+    if (!Array.isArray(body.keywords))
+      throw new HttpError(400, "keywords 必须是数组");
+    if (body.keywords.length > MAX_KEYWORDS) {
+      throw new HttpError(400, `关键词最多 ${MAX_KEYWORDS} 个`);
     }
-  } catch (e) {
-    if (isHttpError(e)) return Response.json({ success: false, error: e.message }, { status: e.status });
-    if ((e as Error).name === "AbortError") return Response.json({ success: false, error: "LLM 调用超时，请稍后重试" }, { status: 504 });
-    return Response.json({ success: false, error: "Error: " + ((e as Error).message || String(e)) }, { status: 500 });
-  }
-}
 
-export async function onRequestOptions() {
-  return new Response(null, { headers: { Allow: "POST, OPTIONS" } });
+    const names = body.keywords
+      .map((keyword) =>
+        typeof keyword?.name === "string" ? keyword.name.trim() : "",
+      )
+      .filter(Boolean);
+    if (!names.length) throw new HttpError(400, "请至少选择一个关键词");
+
+    const prompt = await chatCompletion({
+      endpoint: settings.endpoint,
+      apiKey: settings.apiKey,
+      model: settings.model,
+      system: settings.promptSystemImage,
+      user: `请根据以下关键词生成画面描述：${names.join("、")}`,
+    });
+
+    return ok({ prompt });
+  } catch (e) {
+    return handleError("api:generate-prompt", e, "生成失败");
+  }
 }

@@ -1,328 +1,295 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { ImageRecord } from "@/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ImageRecord } from "@/types";
 
 interface Props {
   records: ImageRecord[];
   activeIndex: number;
   onClose: () => void;
-  onDelete?: (id: number) => void;
+  onDelete: (record: ImageRecord) => void;
 }
 
-export default function FullscreenViewer({ records, activeIndex, onClose, onDelete }: Props) {
+export default function FullscreenViewer({
+  records,
+  activeIndex,
+  onClose,
+  onDelete,
+}: Props) {
   const [showDetail, setShowDetail] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [index, setIndex] = useState(activeIndex);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [currentIndex, setCurrentIndex] = useState(activeIndex);
 
-  // Sync scroll position to initial index
+  useEffect(() => setIndex(activeIndex), [activeIndex]);
+
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollLeft = activeIndex * scrollRef.current.clientWidth;
-    }
+    const container = scrollRef.current;
+    if (container) container.scrollLeft = activeIndex * container.clientWidth;
   }, [activeIndex]);
 
-  // Update index on scroll
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+    const container = scrollRef.current;
+    if (!container) return;
     const onScroll = () => {
-      const idx = Math.round(el.scrollLeft / el.clientWidth);
-      if (idx >= 0 && idx < records.length) setCurrentIndex(idx);
+      const next = Math.round(container.scrollLeft / container.clientWidth);
+      if (next >= 0 && next < records.length) setIndex(next);
     };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
   }, [records.length]);
 
-  const record = records[currentIndex];
-  if (!record) return null;
-
-  const isVideo = record.type === "video" || /\.(mp4|webm|mov)$/i.test(record.imagePath);
-  const src = isVideo ? (record.posterPath || record.imagePath) : record.imagePath;
-
-  const handleDownload = async () => {
-    const url = isVideo ? record.imagePath : src;
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = url.split("/").pop() || "download";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-    } catch {
-      const a = document.createElement("a");
-      a.href = url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      a.download = url.split("/").pop() || "download";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  };
-
-  const handleShare = async () => {
-    const url = isVideo ? record.imagePath : src;
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      const file = new File([blob], url.split("/").pop() || "image.png", { type: blob.type });
-      await navigator.share({
-        files: [file],
-        title: "AI 文生图",
-        text: record.prompt || record.keywordNames || "",
-      });
-    } catch {
-      // Fallback: share just the text
-      try {
-        await navigator.share({
-          title: "AI 文生图",
-          text: record.prompt || record.keywordNames || "",
-          url: src,
-        });
-      } catch {
-        // User cancelled or not supported
-      }
-    }
-  };
-
-  const handleCopy = async () => {
-    const text = record.prompt || record.keywordNames;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      } catch {}
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Keyboard
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
   }, [onClose]);
 
-  const scrollTo = (idx: number) => {
-    scrollRef.current?.scrollTo({ left: idx * (scrollRef.current?.clientWidth || 0), behavior: "smooth" });
+  const scrollTo = useCallback((target: number) => {
+    const container = scrollRef.current;
+    if (!container) return;
+    container.scrollTo({
+      left: target * container.clientWidth,
+      behavior: "smooth",
+    });
+  }, []);
+
+  const record = records[index];
+  if (!record) return null;
+
+  const caption = record.prompt || record.keywordNames;
+
+  const download = () => {
+    const link = document.createElement("a");
+    link.href = record.imagePath;
+    link.download = record.imagePath.split("=").pop() ?? "image.png";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(caption);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      {/* ── Top bar ── */}
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="作品预览"
+      className="fixed inset-0 z-50 flex animate-fade-in flex-col bg-black"
+    >
       <div
-        className="absolute top-0 inset-x-0 z-[60] flex items-center justify-between px-5 py-3"
+        className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 py-3"
         style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}
       >
         <button
+          type="button"
           onClick={onClose}
-          className="w-9 h-9 rounded-full bg-white/20 text-white flex items-center justify-center"
+          aria-label="关闭"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/30"
         >
           ✕
         </button>
 
-        {/* Dot indicators */}
         {records.length > 1 && (
-          <div className="flex gap-1.5">
-            {records.map((_, i) => (
+          <div className="flex max-w-[50vw] flex-wrap justify-center gap-1.5">
+            {records.map((item, i) => (
               <button
-                key={i}
+                key={item.id}
+                type="button"
+                aria-label={`第 ${i + 1} 张`}
                 onClick={() => scrollTo(i)}
-                className="w-1.5 h-1.5 rounded-full transition-base"
+                className="h-1.5 w-1.5 rounded-full transition-base"
                 style={{
-                  background: i === currentIndex ? "#fff" : "rgba(255,255,255,0.35)",
-                  transform: i === currentIndex ? "scale(1.4)" : "scale(1)",
+                  background: i === index ? "#fff" : "rgba(255,255,255,0.35)",
+                  transform: i === index ? "scale(1.4)" : "scale(1)",
                 }}
               />
             ))}
           </div>
         )}
 
-        <span className="text-white/60 text-xs tabular-nums min-w-[40px] text-right">
-          {currentIndex + 1}/{records.length}
+        <span className="min-w-[44px] text-right text-xs tabular-nums text-white/60">
+          {index + 1}/{records.length}
         </span>
       </div>
 
-      {/* ── Image scroll-snap area ── */}
       <div
         ref={scrollRef}
-        className="flex-1 flex overflow-x-auto snap-x snap-mandatory scrollbar-none overscroll-x-contain"
-        style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch" }}
+        className="flex flex-1 snap-x snap-mandatory overflow-x-auto scrollbar-none"
+        style={{ scrollSnapType: "x mandatory" }}
       >
-        {records.map((r, i) => {
-          const isV = r.type === "video" || /\.(mp4|webm|mov)$/i.test(r.imagePath);
-          const imgSrc = isV ? (r.posterPath || r.imagePath) : r.imagePath;
-
-          return (
-            <div
-              key={r.id}
-              className="flex-none w-full h-full snap-center flex items-center justify-center"
-            >
-              {isV ? (
-                <video
-                  src={r.imagePath}
-                  controls
-                  className="max-w-full max-h-full object-contain"
-                  playsInline
-                />
-              ) : (
-                <img
-                  src={imgSrc}
-                  alt={r.prompt || r.keywordNames}
-                  className="max-w-full max-h-full object-contain"
-                  loading="lazy"
-                />
-              )}
-            </div>
-          );
-        })}
+        {records.map((item, i) => (
+          <div
+            key={item.id}
+            className="flex h-full w-full flex-none snap-center items-center justify-center"
+          >
+            <img
+              src={item.imagePath}
+              alt={item.prompt || item.keywordNames}
+              loading={Math.abs(i - index) <= 1 ? "eager" : "lazy"}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+        ))}
       </div>
 
-      {/* ── Nav arrows ── */}
       {records.length > 1 && (
         <>
           <button
-            onClick={() => scrollTo(Math.max(0, currentIndex - 1))}
-            disabled={currentIndex === 0}
-            className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white/15 text-white flex items-center justify-center disabled:opacity-20"
+            type="button"
+            aria-label="上一张"
+            onClick={() => scrollTo(Math.max(0, index - 1))}
+            disabled={index === 0}
+            className="absolute left-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-lg text-white transition-colors hover:bg-white/25 disabled:opacity-20"
           >
             ‹
           </button>
           <button
-            onClick={() => scrollTo(Math.min(records.length - 1, currentIndex + 1))}
-            disabled={currentIndex === records.length - 1}
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white/15 text-white flex items-center justify-center disabled:opacity-20"
+            type="button"
+            aria-label="下一张"
+            onClick={() => scrollTo(Math.min(records.length - 1, index + 1))}
+            disabled={index === records.length - 1}
+            className="absolute right-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-lg text-white transition-colors hover:bg-white/25 disabled:opacity-20"
           >
             ›
           </button>
         </>
       )}
 
-      {/* ── Bottom action bar ── */}
       <div
-        className="absolute bottom-0 inset-x-0 z-[60] pb-4 px-4 flex items-center justify-center gap-3"
+        className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center gap-3 px-4"
         style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
-        onClick={(e) => e.stopPropagation()}
       >
         <button
-          onClick={() => setShowDetail(!showDetail)}
-          className="px-4 py-2.5 rounded-full bg-white/15 text-white text-sm backdrop-blur transition-base"
+          type="button"
+          onClick={() => setShowDetail((value) => !value)}
+          className="rounded-full bg-white/15 px-4 py-2.5 text-sm text-white backdrop-blur transition-colors hover:bg-white/25"
         >
-          {showDetail ? "收起" : "详情"}
+          {showDetail ? "收起详情" : "详情"}
         </button>
-        {typeof navigator !== "undefined" && "share" in navigator && (
-          <button
-            onClick={handleShare}
-            className="px-4 py-2.5 rounded-full bg-white/15 text-white text-sm backdrop-blur transition-base"
-          >
-            分享
-          </button>
-        )}
         <button
-          onClick={handleDownload}
-          className="px-4 py-2.5 rounded-full bg-white/15 text-white text-sm backdrop-blur transition-base"
+          type="button"
+          onClick={download}
+          className="rounded-full bg-white/15 px-4 py-2.5 text-sm text-white backdrop-blur transition-colors hover:bg-white/25"
         >
-          {isVideo ? "下载" : "下载"}
+          下载
         </button>
       </div>
 
-      {/* ── Detail panel + backdrop ── */}
       {showDetail && (
         <>
-          {/* Backdrop — tap to dismiss */}
           <div
-            className="absolute inset-0 z-20"
+            className="absolute inset-0 z-30"
             onClick={() => setShowDetail(false)}
           />
           <div
-            className="absolute bottom-0 inset-x-0 z-30 bg-[#1a1a1a] rounded-t-2xl max-h-[50vh] overflow-y-auto animate-slide-up"
+            className="absolute inset-x-0 bottom-0 z-40 max-h-[55vh] animate-slide-up overflow-y-auto rounded-t-2xl"
             style={{
+              background: "var(--bg-secondary)",
               boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
               paddingBottom: "max(16px, env(safe-area-inset-bottom))",
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
-          <div className="flex items-center justify-center pt-3 pb-1">
-            <div className="w-10 h-1 rounded-full bg-white/30" />
-          </div>
-
-          <div className="px-5 pb-6">
-            {record.keywordNames && (
-              <div className="mb-4">
-                <p className="text-xs text-white/50 mb-2">关键词</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {record.keywordNames.split(", ").map((kw) => (
-                    <span key={kw} className="px-2.5 py-1 rounded-full text-xs bg-white/10 text-white/80">
-                      {kw}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="mb-4">
-              <p className="text-xs text-white/50 mb-2">提示词</p>
-              <p className="text-sm text-white/70 leading-relaxed whitespace-pre-wrap break-all">
-                {record.prompt || record.keywordNames}
-              </p>
+            <div className="flex items-center justify-center pb-1 pt-3">
+              <div
+                className="h-1 w-10 rounded-full"
+                style={{ background: "var(--border-hover)" }}
+              />
             </div>
 
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={handleCopy}
-                className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-base"
-                style={{ background: copied ? "#22c55e" : "rgba(255,255,255,0.15)", color: "#fff" }}
-              >
-                {copied ? "已复制" : "复制提示词"}
-              </button>
-              <button
-                onClick={handleDownload}
-                className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-base bg-white/15 text-white"
-              >
-                {isVideo ? "下载视频" : "下载图片"}
-              </button>
-              {onDelete && (
+            <div className="px-5 pb-6">
+              {record.keywordNames && (
+                <div className="mb-4">
+                  <p
+                    className="mb-2 text-xs"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    关键词
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {record.keywordNames.split(",").map((keyword, i) => (
+                      <span
+                        key={i}
+                        className="rounded-full px-2.5 py-1 text-xs"
+                        style={{
+                          background: "var(--accent-light)",
+                          color: "var(--accent)",
+                        }}
+                      >
+                        {keyword.trim()}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mb-4">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    提示词
+                  </p>
+                  {record.size && (
+                    <span
+                      className="text-[10px] tabular-nums"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {record.size}
+                    </span>
+                  )}
+                </div>
+                <p
+                  className="whitespace-pre-wrap break-words text-sm leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {caption}
+                </p>
+              </div>
+
+              <div className="mt-4 flex gap-3">
                 <button
-                  onClick={() => { onDelete(record.id); onClose(); }}
-                  className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-base bg-red-500/30 text-red-300"
+                  type="button"
+                  onClick={copy}
+                  className="flex-1 rounded-lg py-2.5 text-sm font-medium transition-base"
+                  style={{
+                    background: copied
+                      ? "var(--success)"
+                      : "var(--bg-tertiary)",
+                    color: copied ? "#fff" : "var(--text-secondary)",
+                  }}
+                >
+                  {copied ? "已复制" : "复制提示词"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(record)}
+                  className="flex-1 rounded-lg py-2.5 text-sm font-medium transition-base"
+                  style={{
+                    background: "var(--danger-bg)",
+                    color: "var(--danger)",
+                  }}
                 >
                   删除
                 </button>
-              )}
+              </div>
             </div>
           </div>
-        </div>
         </>
       )}
-
-      <style jsx>{`
-        .scrollbar-none::-webkit-scrollbar { display: none; }
-        .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to { transform: translateY(0); }
-        }
-        .animate-slide-up {
-          animation: slideUp 0.3s ease-out;
-        }
-      `}</style>
     </div>
   );
 }

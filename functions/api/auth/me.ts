@@ -1,11 +1,21 @@
-import { requireAuth, isHttpError } from "../../auth";
-import type { Env } from "../../db";
+import { ok } from "../../lib/http";
+import type { Env } from "../../lib/env";
+import { passwordConfigured, verifySessionToken } from "../../lib/auth";
 
-export async function onRequestGet(context: { request: Request; env: Env }) {
-  try {
-    const session = await requireAuth(context.env, context.request);
-    return Response.json({ success: true, data: session });
-  } catch {
-    return Response.json({ success: false, error: "未登录" }, { status: 401 });
-  }
+/** GET /api/auth/me — 前端启动时判断是否需要显示密码门。 */
+export async function onRequestGet(context: {
+  request: Request;
+  env: Env;
+}): Promise<Response> {
+  const match = (context.request.headers.get("Cookie") || "").match(
+    /(?:^|;\s*)session=([^;]+)/,
+  );
+  const session = match
+    ? await verifySessionToken(context.env, match[1])
+    : null;
+
+  return ok({
+    authenticated: Boolean(session),
+    passwordConfigured: passwordConfigured(context.env),
+  });
 }
