@@ -11,8 +11,10 @@ compatibility_date = "2025-06-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "txt2img-db"
-# 由 setup-cf.sh 自动写入；手动部署时请替换为你自己的 D1 ID
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+# 这里必须是真实的 D1 ID：CI 直接用仓库里的这份配置部署，写成占位符会报
+# "Error 8000022: Invalid database UUID"。D1 ID 不是密钥。
+# Fork 之后改成自己的（或直接跑 setup-cf.sh，它会自动写入）。
+database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
