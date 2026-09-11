@@ -15,7 +15,7 @@
   "include": [
     "tests/**/*.ts",
     "functions/**/*.ts",
-    "queue-worker/**/*.ts",
+    "worker/**/*.ts",
     "src/lib/sizes.ts",
     "src/types/**/*.ts",
     "vitest.config.ts"

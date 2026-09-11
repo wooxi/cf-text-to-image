@@ -3,6 +3,8 @@ import { HttpError } from "./http";
 /**
  * 所有配置（含密钥）一律来自 Cloudflare 环境变量，不落库、不在系统内编辑。
  * 见 README「环境变量」。
+ *
+ * 生成结果的落盘位置由 IMAGE_BED_* 决定：配了图床就走图床外链，没配就走 R2。
  */
 
 /** 字符串型配置项。绑定（DB / R2 / Queue）不在此列。 */
@@ -15,6 +17,9 @@ export type ConfigKey =
   | "IMAGE_ENDPOINT"
   | "IMAGE_API_KEY"
   | "IMAGE_MODEL"
+  | "IMAGE_BED_ENDPOINT"
+  | "IMAGE_BED_AUTH_CODE"
+  | "IMAGE_BED_CHANNEL"
   | "PROMPT_SYSTEM_IMAGE"
   | "PROMPT_SYSTEM_POLISH";
 
@@ -34,7 +39,18 @@ export interface Env {
   IMAGE_API_KEY: string;
   IMAGE_MODEL: string;
 
-  /** 可选：覆写内置系统提示词 */
+  /**
+   * 可选：CloudFlare-ImgBed 图床。配了就把生成结果传图床、以外部链接入库，
+   * R2 只留给参考图；没配则和以前一样存 R2。
+   */
+  IMAGE_BED_ENDPOINT?: string;
+  IMAGE_BED_AUTH_CODE?: string;
+  IMAGE_BED_CHANNEL?: string;
+
+  /**
+   * 可选：覆写内置系统提示词。短文本可以直接放这里；
+   * 超过 5.1 KB 的请写进 D1 的 settings 表（键 prompt_system_image / prompt_system_polish）。
+   */
   PROMPT_SYSTEM_IMAGE?: string;
   PROMPT_SYSTEM_POLISH?: string;
 }
@@ -62,6 +78,13 @@ export const ENV_VARS: readonly { key: ConfigKey; scope: string }[] = [
   ...AUTH_KEYS.map((key) => ({ key, scope: "Pages" })),
   ...LLM_KEYS.map((key) => ({ key, scope: "Pages" })),
   ...IMAGE_KEYS.map((key) => ({ key, scope: "Pages + Worker" })),
+];
+
+/** 可选变量：不配也能跑（生成结果落 R2），配了才走图床。 */
+export const OPTIONAL_ENV_VARS: readonly { key: ConfigKey; scope: string }[] = [
+  { key: "IMAGE_BED_ENDPOINT", scope: "Pages + Worker" },
+  { key: "IMAGE_BED_AUTH_CODE", scope: "Pages + Worker" },
+  { key: "IMAGE_BED_CHANNEL", scope: "Pages + Worker" },
 ];
 
 export function missingEnvVars(env: Env): string[] {
@@ -103,14 +126,61 @@ export interface LlmSettings {
 }
 
 /** 只有 Pages 的提示词生成 / 润色需要。 */
-export function getLlmSettings(env: Env): LlmSettings {
+/**
+ * 覆写提示词的取值顺序：环境变量 → D1 settings 表 → 内置默认。
+ *
+ * 之所以要有 D1 这一层：Worker 的单个文本绑定上限 5.1 KB，而一份认真写过的
+ * 图片提示词轻易就超过它（本项目线上那份 2.8 千字，UTF-8 下 7.8 KB）。这类
+ * 「内容型」配置放不进环境变量，也不该写死在代码里——每个部署者都不一样。
+ * 机密（API Key、访问密码）仍然一律走环境变量，不入库。
+ */
+const PROMPT_KEYS = {
+  PROMPT_SYSTEM_IMAGE: "prompt_system_image",
+  PROMPT_SYSTEM_POLISH: "prompt_system_polish",
+} as const;
+
+async function promptOverride(
+  env: Env,
+  envKey: keyof typeof PROMPT_KEYS,
+): Promise<string> {
+  const fromEnv = env[envKey]?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+      .bind(PROMPT_KEYS[envKey])
+      .first<{ value: string }>();
+    return row?.value?.trim() ?? "";
+  } catch {
+    // settings 表还没建（没跑过迁移的老库）：当作没有覆写
+    return "";
+  }
+}
+
+/**
+ * 解析两份提示词（环境变量 → D1 → 内置默认）。
+ * 不校验 LLM_* 是否齐全——设置页自检要在配置不全的情况下也能把当前状态显示出来。
+ */
+export async function resolvePrompts(
+  env: Env,
+): Promise<{ image: string; polish: string }> {
+  const [image, polish] = await Promise.all([
+    promptOverride(env, "PROMPT_SYSTEM_IMAGE"),
+    promptOverride(env, "PROMPT_SYSTEM_POLISH"),
+  ]);
+  return {
+    image: image || DEFAULT_IMAGE_PROMPT,
+    polish: polish || DEFAULT_POLISH_PROMPT,
+  };
+}
+
+export async function getLlmSettings(env: Env): Promise<LlmSettings> {
   required(env, LLM_KEYS);
+  const prompts = await resolvePrompts(env);
   return {
     endpoint: env.LLM_ENDPOINT.trim(),
     apiKey: env.LLM_API_KEY.trim(),
     model: env.LLM_MODEL.trim(),
-    promptSystemImage: env.PROMPT_SYSTEM_IMAGE?.trim() || DEFAULT_IMAGE_PROMPT,
-    promptSystemPolish:
-      env.PROMPT_SYSTEM_POLISH?.trim() || DEFAULT_POLISH_PROMPT,
+    promptSystemImage: prompts.image,
+    promptSystemPolish: prompts.polish,
   };
 }

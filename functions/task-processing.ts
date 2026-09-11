@@ -2,6 +2,7 @@ import { getImageSettings } from "./lib/env";
 import type { Env } from "./lib/env";
 import { normalizeEndpoint } from "./lib/endpoints";
 import { extForContentType, IMAGE_PREFIX, REF_PREFIX } from "./lib/media";
+import { getImageBedSettings, uploadToImageBed } from "./lib/imagebed";
 
 /** 上游模型 API 返回的业务错误：任务落库为 failed，不触发队列重投。 */
 export class ModelApiError extends Error {}
@@ -184,12 +185,7 @@ async function processImage(env: Env, taskId: number, task: TaskRow) {
   if (!image) throw new ModelApiError("生图返回为空");
 
   const { bytes, contentType } = await readResult(image);
-  const filename = `${crypto.randomUUID()}.${extForContentType(contentType) ?? "png"}`;
-  await env.IMAGES_BUCKET.put(IMAGE_PREFIX + filename, bytes, {
-    httpMetadata: { contentType },
-  });
-
-  const imagePath = `/api/images?file=${filename}`;
+  const imagePath = await storeImage(env, bytes, contentType);
   const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(
@@ -201,6 +197,37 @@ async function processImage(env: Env, taskId: number, task: TaskRow) {
     ).bind(imagePath, now, taskId),
   ]);
   logTask("image-ok", { taskId, imagePath });
+}
+
+/**
+ * 生成结果落盘。
+ *
+ * 配了图床就传图床，入库的是可公开访问的外链，图库直接引用；
+ * 没配图床（或图床临时故障）则落 R2，经 /api/images 代理读取。
+ * 图床失败刻意不判任务失败——图已经在手上，退一步存 R2 比丢掉重生成划算。
+ */
+async function storeImage(
+  env: Env,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<string> {
+  if (getImageBedSettings(env)) {
+    try {
+      const url = await uploadToImageBed(env, bytes, contentType);
+      logTask("image-bed:ok", { url });
+      return url;
+    } catch (error) {
+      logTask("image-bed:fail", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const filename = `${crypto.randomUUID()}.${extForContentType(contentType) ?? "png"}`;
+  await env.IMAGES_BUCKET.put(IMAGE_PREFIX + filename, bytes, {
+    httpMetadata: { contentType },
+  });
+  return `/api/images?file=${filename}`;
 }
 
 const QUALITY_SUFFIX =

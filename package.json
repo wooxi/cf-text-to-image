@@ -1,22 +1,24 @@
 {
   "name": "cf-text-to-image",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build:next": "next build",
+    "build:api": "wrangler pages functions build --outdir=dist/functions",
+    "build": "npm run build:next && npm run build:api",
+    "deploy": "npm run build && npm run cf:prepare && wrangler deploy && npm run db:migrate:remote",
+    "preview": "npm run build && wrangler dev",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "pages:dev": "wrangler pages dev out",
-    "pages:deploy": "wrangler pages deploy out --project-name=cf-text-to-image --branch=master",
-    "worker:deploy": "wrangler deploy --config queue-worker/wrangler.toml",
-    "db:migrate:local": "for f in ./db/migrations/*.sql; do wrangler d1 execute txt2img-db --local -y --file=\"$f\" || exit 1; done",
-    "db:migrate:remote": "for f in ./db/migrations/*.sql; do wrangler d1 execute txt2img-db --remote -y --file=\"$f\" || exit 1; done"
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "cf:prepare": "wrangler r2 bucket create txt2img-images || true; wrangler queues create txt2img-task-queue || true"
   },
   "dependencies": {
     "jose": "^5.9.0",

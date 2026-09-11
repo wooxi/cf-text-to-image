@@ -8,6 +8,7 @@ out/
 .dev.vars
 .dev.vars.*
 .wrangler/
+dist/
 tsconfig.tsbuildinfo
 .vscode/
 .DS_Store

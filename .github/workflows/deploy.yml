@@ -19,6 +19,10 @@ jobs:
 
       - run: npm ci
 
+      # 类型检查依赖构建产物：worker 入口 import 编译后的 functions 包
+      - name: Build (Next export + API bundle)
+        run: npm run build
+
       - name: Typecheck (app / worker / tests)
         run: npm run typecheck
 
@@ -32,18 +36,10 @@ jobs:
       # 历史上有一次迁移在任何新库上都会失败（duplicate column name），
       # 因为没有这一步，问题存在了很久都没被发现。
       - name: Verify migrations apply to a fresh database
-        run: |
-          set -euo pipefail
-          for f in ./db/migrations/*.sql; do
-            echo "▶ applying $f"
-            npx wrangler d1 execute txt2img-db --local -y --file="$f"
-          done
-
-      - name: Build
-        run: npm run build
+        run: npx wrangler d1 migrations apply DB --local
 
       # 仅提示，不阻塞：残留项都在 next / postcss 这类构建期依赖上，
-      # 本项目是 output: "export" 纯静态导出，Next 服务端不受影响（详见 README）。
+      # 本项目是纯静态导出，Next 服务端不受影响（详见 README）。
       - name: Dependency audit (informational)
         run: npm audit --omit=dev || true
 
@@ -69,18 +65,17 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - name: Ensure Queue exists
-        run: npx wrangler queues create txt2img-task-queue || true
+      # 一个 Worker 承载全部：静态前端 + /api/* + 队列消费 + 每日定时。
+      # D1/R2/Queue 同名资源已存在就复用，不存在则由 wrangler 自动创建。
+      - name: Deploy Worker
+        run: npx wrangler deploy
 
-      - name: Deploy to Cloudflare Pages
-        run: npx wrangler pages deploy out --project-name=cf-text-to-image --branch=master
+      - name: Apply D1 migrations
+        run: npm run db:migrate:remote
 
-      - name: Deploy Queue Consumer Worker
-        run: npx wrangler deploy --config queue-worker/wrangler.toml
-
-      # 部署后冒烟：这套架构最容易漏的一类故障，就是「CI 全绿但站点打不开」。
-      # Pages 的环境变量不在仓库里，缺了部署本身不会报错，只有请求进来才会 500，
-      # 所以这里直接打线上接口，把配置缺失挡在 CI 里。
+      # 部署后冒烟：环境变量没注入时 CI 必须变红。
+      # 线上曾经出现过「CI 全绿但站点无法登录」——因为环境变量不在仓库里，
+      # 缺失时部署本身不会报错，只有请求进来才会 500。
       - name: Smoke test (production)
         env:
           SITE_URL: ${{ vars.SITE_URL || 'https://img.chongya.ccwu.cc' }}
@@ -98,7 +93,7 @@ jobs:
           cat /tmp/me.json; echo
           [ "$code" = "200" ] || { echo "✗ /api/auth/me 返回 $code"; exit 1; }
           grep -q '"passwordConfigured":true' /tmp/me.json \
-            || { echo "✗ ACCESS_PASSWORD 未注入 Pages —— 站点无法登录"; exit 1; }
+            || { echo "✗ ACCESS_PASSWORD 未注入 —— 站点无法登录"; exit 1; }
 
           echo "▶ 鉴权链路（错误密码期望 401；返回 500 说明 ACCESS_PASSWORD / SESSION_SECRET 缺失）"
           code=$(curl -sS -o /tmp/login.json -w '%{http_code}' -X POST \

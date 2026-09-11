@@ -3,8 +3,10 @@ import {
   DEFAULT_IMAGE_PROMPT,
   DEFAULT_POLISH_PROMPT,
   ENV_VARS,
+  OPTIONAL_ENV_VARS,
   getLlmSettings,
   missingEnvVars,
+  resolvePrompts,
 } from "../lib/env";
 import type { Env } from "../lib/env";
 import { requireAuth } from "../lib/auth";
@@ -20,24 +22,28 @@ export async function onRequestGet(context: {
   try {
     await requireAuth(context.env, context.request);
     const env = context.env;
+    const prompts = await resolvePrompts(env);
 
     return ok({
       required: ENV_VARS,
+      optional: OPTIONAL_ENV_VARS,
       missing: missingEnvVars(env),
       resolved: {
         llmEndpoint: env.LLM_ENDPOINT?.trim() ?? "",
         llmModel: env.LLM_MODEL?.trim() ?? "",
         imageEndpoint: env.IMAGE_ENDPOINT?.trim() ?? "",
         imageModel: env.IMAGE_MODEL?.trim() ?? "",
-        promptSystemImage:
-          env.PROMPT_SYSTEM_IMAGE?.trim() || DEFAULT_IMAGE_PROMPT,
-        promptSystemPolish:
-          env.PROMPT_SYSTEM_POLISH?.trim() || DEFAULT_POLISH_PROMPT,
+        imageBedEndpoint: env.IMAGE_BED_ENDPOINT?.trim() ?? "",
+        promptSystemImage: prompts.image,
+        promptSystemPolish: prompts.polish,
       },
+      // 与内置默认不同即为「已覆写」，不管来自环境变量还是 D1 settings
       overrides: {
-        image: Boolean(env.PROMPT_SYSTEM_IMAGE?.trim()),
-        polish: Boolean(env.PROMPT_SYSTEM_POLISH?.trim()),
+        image: prompts.image !== DEFAULT_IMAGE_PROMPT,
+        polish: prompts.polish !== DEFAULT_POLISH_PROMPT,
       },
+      // 生成结果存哪里：配了图床就是图床外链，否则是 R2 + /api/images 代理
+      storage: env.IMAGE_BED_ENDPOINT?.trim() ? "image-bed" : "r2",
     });
   } catch (e) {
     return handleError("config:get", e, "读取状态失败");
@@ -51,7 +57,7 @@ export async function onRequestPost(context: {
 }): Promise<Response> {
   try {
     await requireAuth(context.env, context.request);
-    const settings = getLlmSettings(context.env);
+    const settings = await getLlmSettings(context.env);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);

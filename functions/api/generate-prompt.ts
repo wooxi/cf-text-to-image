@@ -13,7 +13,7 @@ export async function onRequestPost(context: {
 }): Promise<Response> {
   try {
     await requireAuth(context.env, context.request);
-    const settings = getLlmSettings(context.env);
+    const settings = await getLlmSettings(context.env);
 
     const body = await readJson<{ keywords?: { name?: unknown }[] }>(
       context.request,

@@ -1,20 +1,24 @@
-name = "cf-text-to-image"
-compatibility_date = "2025-06-01"
-pages_build_output_dir = "out"
-
-# ─────────────────────────────────────────────────────────────
-# 所有密钥/配置一律通过 Cloudflare 控制台的环境变量注入，
-# 不写入本文件、不落数据库、不在系统 UI 中编辑。
+# 单 Worker 应用：静态前端 + /api/* + 队列消费 + 每日定时维护。
+#
+# 所有密钥/配置一律通过 Cloudflare 环境变量注入，不写入本文件、不落数据库，
 # 见 README「环境变量」。
-# ─────────────────────────────────────────────────────────────
+#
+# 这里刻意不写任何资源 ID：wrangler 部署时找不到同名资源会自动创建，找到就直接
+# 复用。所以 fork 之后不需要先手动建库建桶再回来改配置——点一键部署按钮即可。
+name = "cf-text-to-image"
+main = "worker/index.ts"
+compatibility_date = "2025-06-01"
+
+[assets]
+directory = "./out"
+binding = "ASSETS"
+# 静态文件由 assets 直出（走 CDN，不唤醒 Worker），只有 API 请求进 Worker
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "txt2img-db"
-# 这里必须是真实的 D1 ID：CI 直接用仓库里的这份配置部署，写成占位符会报
-# "Error 8000022: Invalid database UUID"。D1 ID 不是密钥。
-# Fork 之后改成自己的（或直接跑 setup-cf.sh，它会自动写入）。
-database_id = "2d60db07-4ef5-4b7a-a0e1-25182556237f"
+migrations_dir = "db/migrations"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
@@ -23,3 +27,18 @@ bucket_name = "txt2img-images"
 [[queues.producers]]
 binding = "TASK_QUEUE"
 queue = "txt2img-task-queue"
+
+[[queues.consumers]]
+queue = "txt2img-task-queue"
+max_batch_size = 1
+max_batch_timeout = 0
+max_retries = 1
+max_concurrency = 10
+
+# 每天 03:00 UTC：给卡死的 processing 任务收尸，清理 7 天前的参考图
+[triggers]
+crons = ["0 3 * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
