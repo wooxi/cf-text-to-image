@@ -77,3 +77,35 @@ jobs:
 
       - name: Deploy Queue Consumer Worker
         run: npx wrangler deploy --config queue-worker/wrangler.toml
+
+      # 部署后冒烟：这套架构最容易漏的一类故障，就是「CI 全绿但站点打不开」。
+      # Pages 的环境变量不在仓库里，缺了部署本身不会报错，只有请求进来才会 500，
+      # 所以这里直接打线上接口，把配置缺失挡在 CI 里。
+      - name: Smoke test (production)
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://img.chongya.ccwu.cc' }}
+        run: |
+          set -euo pipefail
+
+          echo "▶ 站点可达性 + ACCESS_PASSWORD 是否注入"
+          code=000
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /tmp/me.json -w '%{http_code}' "$SITE_URL/api/auth/me" || echo 000)
+            [ "$code" = "200" ] && break
+            echo "  第 $i 次：HTTP $code，5s 后重试"
+            sleep 5
+          done
+          cat /tmp/me.json; echo
+          [ "$code" = "200" ] || { echo "✗ /api/auth/me 返回 $code"; exit 1; }
+          grep -q '"passwordConfigured":true' /tmp/me.json \
+            || { echo "✗ ACCESS_PASSWORD 未注入 Pages —— 站点无法登录"; exit 1; }
+
+          echo "▶ 鉴权链路（错误密码期望 401；返回 500 说明 ACCESS_PASSWORD / SESSION_SECRET 缺失）"
+          code=$(curl -sS -o /tmp/login.json -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"password":"smoke-test-deliberately-wrong-password"}' \
+            "$SITE_URL/api/auth/login")
+          cat /tmp/login.json; echo
+          [ "$code" = "401" ] || { echo "✗ 期望 401，实际 $code"; exit 1; }
+
+          echo "✓ 生产环境鉴权与配置注入正常"
