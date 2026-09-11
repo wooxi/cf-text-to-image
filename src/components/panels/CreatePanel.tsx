@@ -19,6 +19,10 @@ interface Props {
 const RATIO = /^\d+:\d+$/;
 const TIER = /^\d+$/;
 
+/**
+ * 桌面端左右分栏：左边选关键词（唯一会滚动的区域），右边是固定的创作栏。
+ * 移动端退回上下堆叠，创作栏吸在底部——避免提示词框和提交按钮被关键词挤到屏幕外。
+ */
 export default function CreatePanel({
   groups,
   prompt,
@@ -130,89 +134,108 @@ export default function CreatePanel({
   }, [canSubmit, onSubmitted, prompt, refImages, semantic, size, toast, type]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-        <div
-          className="flex gap-1 rounded-xl p-1"
-          style={{ background: "var(--bg-tertiary)" }}
-        >
-          {(
-            [
-              ["image", "🎨 关键词生图"],
-              ["img2img", "🖼️ 参考图编辑"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setType(key)}
-              className="flex-1 rounded-lg py-2 text-xs font-medium transition-base sm:text-sm"
+    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      {/* 左栏：选择区 */}
+      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
+        <div className="mx-auto w-full max-w-4xl space-y-5">
+          <div
+            className="inline-flex gap-1 rounded-lg p-0.5"
+            style={{ background: "var(--bg-tertiary)" }}
+          >
+            {(
+              [
+                ["image", "🎨 关键词生图"],
+                ["img2img", "🖼️ 参考图编辑"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setType(key)}
+                className="rounded-[7px] px-4 py-1.5 text-xs font-medium transition-base"
+                style={{
+                  background: type === key ? "var(--accent)" : "transparent",
+                  color: type === key ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {type === "img2img" && (
+            <section
+              className="rounded-xl border p-4"
               style={{
-                background: type === key ? "var(--accent)" : "transparent",
-                color: type === key ? "#fff" : "var(--text-secondary)",
+                borderColor: "var(--border)",
+                background: "var(--bg-secondary)",
               }}
             >
-              {label}
-            </button>
-          ))}
-        </div>
+              <div className="mb-3 flex items-center justify-between">
+                <span
+                  className="text-sm font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  参考图
+                </span>
+                <span
+                  className="text-xs tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {refImages.length}/3
+                </span>
+              </div>
+              <ImageUploader images={refImages} onChange={setRefImages} />
+            </section>
+          )}
 
-        {type === "img2img" && (
-          <section
-            className="rounded-xl border p-4"
-            style={{
-              borderColor: "var(--border)",
-              background: "var(--bg-secondary)",
+          <KeywordSelector
+            groups={groups}
+            selected={selected}
+            onToggle={toggle}
+            onClearGroup={(group) => {
+              const names = new Set(group.keywords.map((item) => item.name));
+              setSelected((prev) => prev.filter((name) => !names.has(name)));
             }}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <span
-                className="text-sm font-medium"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                参考图
-              </span>
-              <span
-                className="text-xs tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {refImages.length}/3
-              </span>
-            </div>
-            <ImageUploader images={refImages} onChange={setRefImages} />
-          </section>
-        )}
-
-        <KeywordSelector
-          groups={groups}
-          selected={selected}
-          onToggle={toggle}
-          onClearGroup={(group) => {
-            const names = new Set(group.keywords.map((item) => item.name));
-            setSelected((prev) => prev.filter((name) => !names.has(name)));
-          }}
-          onClearAll={() => setSelected([])}
-        />
+            onClearAll={() => setSelected([])}
+          />
+        </div>
       </div>
 
-      <div
-        className="shrink-0 border-t p-4 backdrop-blur-xl"
+      {/* 右栏：创作区（桌面固定列，移动端吸底） */}
+      <section
+        className="shrink-0 border-t p-4 lg:w-[380px] lg:border-l lg:border-t-0 xl:w-[420px]"
         style={{
           borderColor: "var(--border)",
-          background: "var(--bg-elevated, var(--bg-secondary))",
+          background: "var(--bg-secondary)",
         }}
       >
-        <div className="space-y-3">
+        <div className="flex h-full flex-col gap-3 lg:justify-between">
+          <div className="flex items-center justify-between">
+            <h2
+              className="text-xs font-semibold uppercase tracking-[0.14em]"
+              style={{ color: "var(--text-muted)" }}
+            >
+              画面描述
+            </h2>
+            <span
+              className="text-[11px] tabular-nums"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {prompt.length} 字
+            </span>
+          </div>
+
           <textarea
             value={prompt}
             onChange={(event) => onPromptChange(event.target.value)}
-            rows={3}
+            rows={type === "img2img" ? 3 : 5}
             placeholder={
               type === "img2img"
                 ? "描述要保留什么、改动什么，例如：把外套换成红色，背景改为雨天街景…"
                 : "选好关键词后点「生成提示词」获取底稿，也可以直接手写画面描述…"
             }
-            className="w-full resize-none rounded-md border px-4 py-3 text-sm leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
+            className="w-full resize-none rounded-lg border px-3.5 py-3 text-sm leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
             style={{
               borderColor: "var(--border)",
               background: "var(--bg-tertiary)",
@@ -220,25 +243,52 @@ export default function CreatePanel({
             }}
           />
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div
-              className="flex flex-wrap items-center gap-3 text-xs"
-              style={{ color: "var(--text-muted)" }}
+          <div className="flex items-center gap-2 text-[11px]">
+            <span
+              className="badge"
+              style={{
+                background: "var(--accent-light)",
+                color: "var(--accent)",
+              }}
             >
-              <span className="tabular-nums">{prompt.length} 字</span>
-              <span className="tabular-nums">
-                {size}
-                {output.length ? ` · ${output.join(" · ")}` : ""}
+              {size}
+            </span>
+            {output.map((name) => (
+              <span
+                key={name}
+                className="badge"
+                style={{
+                  background: "var(--bg-tertiary)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {name}
               </span>
-            </div>
+            ))}
+          </div>
 
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={busy !== null || !canSubmit}
+              className="w-full rounded-lg py-2.5 text-sm font-semibold transition-base disabled:cursor-not-allowed"
+              style={{
+                background:
+                  canSubmit && busy === null ? "var(--accent)" : "var(--bg-tertiary)",
+                color: canSubmit && busy === null ? "#fff" : "var(--text-muted)",
+              }}
+            >
+              {busy === "submit" ? "提交中…" : "✨ 提交生成"}
+            </button>
+
+            <div className="flex gap-2">
               {type === "image" && (
                 <button
                   type="button"
                   onClick={() => void runLlm("prompt")}
                   disabled={busy !== null || semantic.length === 0}
-                  className="rounded-md border px-4 py-2 text-xs font-medium transition-base hover:border-[var(--border-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex-1 rounded-lg border py-2 text-xs font-medium transition-base hover:border-[var(--border-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     borderColor: "var(--border)",
                     color: "var(--text-secondary)",
@@ -251,7 +301,7 @@ export default function CreatePanel({
                 type="button"
                 onClick={() => void runLlm("polish")}
                 disabled={busy !== null || !prompt.trim()}
-                className="rounded-md border px-3 py-2 text-xs font-medium transition-base hover:border-[var(--border-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex-1 rounded-lg border py-2 text-xs font-medium transition-base hover:border-[var(--border-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--text-secondary)",
@@ -259,26 +309,10 @@ export default function CreatePanel({
               >
                 {busy === "polish" ? "润色中…" : "AI 润色"}
               </button>
-              <button
-                type="button"
-                onClick={() => void submit()}
-                disabled={busy !== null || !canSubmit}
-                className="rounded-md px-5 py-2 text-xs font-semibold transition-base disabled:cursor-not-allowed"
-                style={{
-                  background:
-                    canSubmit && busy === null
-                      ? "var(--accent)"
-                      : "var(--bg-tertiary)",
-                  color:
-                    canSubmit && busy === null ? "#fff" : "var(--text-muted)",
-                }}
-              >
-                {busy === "submit" ? "提交中…" : "✨ 提交生成"}
-              </button>
             </div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

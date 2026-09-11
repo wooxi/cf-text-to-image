@@ -246,38 +246,22 @@ export default function HomePage() {
                 key={item.key}
                 type="button"
                 onClick={() => setPanel(item.key)}
-                className="rounded-lg px-3 py-2.5 text-left transition-base"
+                className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-base"
                 style={{
                   background: active ? "var(--accent-light)" : "transparent",
-                  borderLeft: active
-                    ? "2px solid var(--accent)"
-                    : "2px solid transparent",
+                  color: active ? "var(--accent)" : "var(--text-secondary)",
                 }}
+                title={item.hint}
               >
-                <div
-                  className="flex items-center justify-between gap-2 text-sm font-medium"
-                  style={{
-                    color: active ? "var(--accent)" : "var(--text-secondary)",
-                  }}
-                >
-                  <span>
-                    <span className="mr-2" aria-hidden>
-                      {item.icon}
-                    </span>
-                    {item.label}
+                <span className="flex items-center gap-2">
+                  <span aria-hidden>{item.icon}</span>
+                  {item.label}
+                </span>
+                {counts[item.key] > 0 && (
+                  <span className="text-[10px] tabular-nums opacity-70">
+                    {counts[item.key]}
                   </span>
-                  {counts[item.key] > 0 && (
-                    <span className="text-[10px] tabular-nums opacity-70">
-                      {counts[item.key]}
-                    </span>
-                  )}
-                </div>
-                <div
-                  className="mt-0.5 text-[11px] leading-snug"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {item.hint}
-                </div>
+                )}
               </button>
             );
           })}
@@ -328,7 +312,7 @@ export default function HomePage() {
           )}
 
           {panel === "gallery" && (
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
               <Gallery
                 records={records}
                 liveTasks={tasks}
@@ -344,7 +328,7 @@ export default function HomePage() {
           )}
 
           {panel === "tasks" && (
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
               <TasksPanel
                 tasks={tasks}
                 onRetry={retryTask}

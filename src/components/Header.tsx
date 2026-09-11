@@ -4,6 +4,9 @@ import { useTheme } from "./ThemeProvider";
 import { useAuth } from "./AuthProvider";
 import { useConfirm } from "./ConfirmDialog";
 
+const ACTION_CLASS =
+  "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-base hover:border-[var(--border-hover)] hover:text-[var(--text-primary)]";
+
 export default function Header({
   onOpenSettings,
 }: {
@@ -21,18 +24,18 @@ export default function Header({
         background: "var(--bg-elevated, var(--bg-secondary))",
       }}
     >
-      <div className="flex items-center justify-between gap-3 px-3 py-2 sm:px-5 sm:py-2.5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <img src="/icon.svg" alt="" className="h-7 w-7 shrink-0" />
+      <div className="flex items-center justify-between gap-3 px-3 py-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <img src="/icon.svg" alt="" className="h-6 w-6 shrink-0" />
           <div className="min-w-0">
             <div
-              className="truncate text-sm font-semibold"
+              className="truncate text-[13px] font-semibold leading-tight"
               style={{ color: "var(--text-primary)" }}
             >
               文生图工作室
             </div>
             <div
-              className="hidden text-[10px] uppercase tracking-[0.22em] sm:block"
+              className="hidden text-[9px] uppercase leading-tight tracking-[0.2em] sm:block"
               style={{ color: "var(--text-muted)" }}
             >
               Text to Image Studio
@@ -44,7 +47,7 @@ export default function Header({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="rounded-full border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--border-hover)]"
+            className={`${ACTION_CLASS} lg:hidden`}
             style={{
               borderColor: "var(--border)",
               color: "var(--text-secondary)",
@@ -52,12 +55,11 @@ export default function Header({
             title="设置"
           >
             <span aria-hidden>⚙️</span>
-            <span className="ml-1 hidden sm:inline">设置</span>
           </button>
           <button
             type="button"
             onClick={toggle}
-            className="rounded-full border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--border-hover)]"
+            className={ACTION_CLASS}
             style={{
               borderColor: "var(--border)",
               color: "var(--text-secondary)",
@@ -80,7 +82,7 @@ export default function Header({
                 await logout();
               }
             }}
-            className="rounded-full border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--danger)] hover:text-[var(--danger)]"
+            className={ACTION_CLASS}
             style={{
               borderColor: "var(--border)",
               color: "var(--text-secondary)",

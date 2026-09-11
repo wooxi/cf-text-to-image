@@ -16,6 +16,9 @@ interface Props {
   onOpen: (record: ImageRecord) => void;
 }
 
+const GRID =
+  "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6";
+
 export default function Gallery({
   records,
   liveTasks,
@@ -33,21 +36,20 @@ export default function Gallery({
         className="rounded-2xl border border-dashed px-6 py-16 text-center"
         style={{ borderColor: "var(--border)" }}
       >
-        <span className="text-5xl" aria-hidden>
+        <span className="text-4xl" aria-hidden>
           🎨
         </span>
         <p
-          className="mt-4 text-base font-semibold"
+          className="mt-4 text-sm font-semibold"
           style={{ color: "var(--text-primary)" }}
         >
-          准备开始创作
+          还没有作品
         </p>
         <p
-          className="mx-auto mt-2 max-w-md text-sm leading-relaxed"
+          className="mx-auto mt-2 max-w-md text-xs leading-relaxed"
           style={{ color: "var(--text-secondary)" }}
         >
-          选好关键词后点「生成提示词」让 AI
-          写画面描述，也可以直接手写，然后提交生成。
+          到「创作台」选几个关键词，让 AI 写画面描述，或者直接手写一段，提交后就会出现在这里。
         </p>
       </div>
     );
@@ -56,21 +58,18 @@ export default function Gallery({
   return (
     <div className="space-y-4">
       {loading && records.length === 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className={GRID}>
           {[0, 1, 2, 3, 4, 5, 6, 7].map((key) => (
             <div
               key={key}
-              className="animate-skeleton rounded-xl"
-              style={{
-                border: "1px solid var(--border)",
-                aspectRatio: "3 / 4",
-              }}
+              className="animate-skeleton aspect-square rounded-xl"
+              style={{ border: "1px solid var(--border)" }}
             />
           ))}
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className={GRID}>
         {liveTasks.map((task) => (
           <TaskCard
             key={`task-${task.id}`}
@@ -95,7 +94,7 @@ export default function Gallery({
             type="button"
             onClick={onLoadMore}
             disabled={loading}
-            className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-base hover:border-[var(--border-hover)] disabled:opacity-50"
+            className="rounded-lg border px-5 py-2 text-xs font-medium transition-base hover:border-[var(--border-hover)] disabled:opacity-50"
             style={{
               borderColor: "var(--border)",
               color: "var(--text-secondary)",
