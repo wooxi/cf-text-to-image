@@ -46,6 +46,8 @@ export default function HomePage() {
   const [hasMore, setHasMore] = useState(false);
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  /** 图库真实总数：分页只拉了一部分，别拿已加载条数冒充总量 */
+  const [historyTotal, setHistoryTotal] = useState(0);
 
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -77,6 +79,7 @@ export default function HomePage() {
         setRecords((prev) => (before ? [...prev, ...page.items] : page.items));
         setHasMore(page.hasMore);
         setNextBefore(page.nextBefore);
+        setHistoryTotal(page.total);
       } catch (e) {
         report(e, "历史加载失败");
       } finally {
@@ -222,7 +225,7 @@ export default function HomePage() {
 
   const counts: Record<PanelKey, number> = {
     create: 0,
-    gallery: records.length,
+    gallery: historyTotal,
     tasks: activeCount + failedCount,
     settings: 0,
   };
@@ -285,7 +288,7 @@ export default function HomePage() {
                   failedCount,
                   failedCount > 0 ? "var(--danger)" : "var(--text-secondary)",
                 ],
-                ["成品", records.length, "var(--text-secondary)"],
+                ["成品", historyTotal, "var(--text-secondary)"],
               ] as const
             ).map(([label, value, color]) => (
               <div

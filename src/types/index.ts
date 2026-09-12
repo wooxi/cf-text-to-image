@@ -41,6 +41,8 @@ export interface HistoryPage {
   items: ImageRecord[];
   hasMore: boolean;
   nextBefore: number | null;
+  /** 库里成品总数（与已加载条数无关） */
+  total: number;
 }
 
 /** 设置页读到的配置：可编辑值、密钥是否已填、还缺哪些、成品图存哪 */
