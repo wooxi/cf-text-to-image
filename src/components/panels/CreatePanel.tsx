@@ -256,25 +256,8 @@ export default function CreatePanel({
             } flex-col gap-3 lg:flex lg:min-h-0 lg:flex-1`}
           >
 
-          <textarea
-            value={prompt}
-            onChange={(event) => onPromptChange(event.target.value)}
-            rows={type === "img2img" ? 3 : 5}
-            placeholder={
-              type === "img2img"
-                ? "描述要保留什么、改动什么，例如：把外套换成红色，背景改为雨天街景…"
-                : "选好关键词后点「生成提示词」获取底稿，也可以直接手写画面描述…"
-            }
-            className="max-h-[280px] w-full resize-y rounded-lg border px-3.5 py-3 text-sm leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
-            style={{
-              borderColor: "var(--border)",
-              background: "var(--bg-tertiary)",
-              color: "var(--text-primary)",
-            }}
-          />
-
-          <div
-            className="flex min-h-[88px] flex-1 flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2.5"
+<div
+            className="flex max-h-[150px] shrink-0 flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2.5"
             style={{
               borderColor: "var(--border)",
               background: "var(--bg-tertiary)",
@@ -324,6 +307,25 @@ export default function CreatePanel({
               )}
             </div>
           </div>
+
+
+          <textarea
+            value={prompt}
+            onChange={(event) => onPromptChange(event.target.value)}
+            rows={type === "img2img" ? 3 : 5}
+            placeholder={
+              type === "img2img"
+                ? "描述要保留什么、改动什么，例如：把外套换成红色，背景改为雨天街景…"
+                : "选好关键词后点「生成提示词」获取底稿，也可以直接手写画面描述…"
+            }
+            className="min-h-[220px] w-full flex-1 resize-y rounded-lg border px-3.5 py-3 text-sm leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--bg-tertiary)",
+              color: "var(--text-primary)",
+            }}
+          />
+
 
           <div className="flex shrink-0 items-center gap-2 text-[11px]">
             <span

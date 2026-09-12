@@ -38,15 +38,14 @@ export default function Gate() {
   };
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.5]"
-        style={{
-          background:
-            "radial-gradient(circle at 20% 10%, var(--accent-light) 0%, transparent 45%), radial-gradient(circle at 85% 90%, rgba(136,192,168,0.10) 0%, transparent 45%)",
-        }}
-      />
-      <div className="relative w-full max-w-sm">
+    <div className="flex min-h-dvh overflow-hidden">
+      {/* 左半屏插图：站内的图像模型自己画的 */}
+      <div className="relative hidden w-1/2 lg:block">
+        <img src="/hero.jpg" alt="" className="h-full w-full object-cover" />
+      </div>
+
+      <div className="relative flex flex-1 items-center justify-center px-4">
+      <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <div
             className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border"
@@ -142,6 +141,7 @@ export default function Gate() {
           <br />
           入口密码来自 Cloudflare 环境变量。
         </p>
+      </div>
       </div>
     </div>
   );

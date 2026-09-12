@@ -43,13 +43,13 @@ function Card({
       >
         <div className="min-w-0">
           <h3
-            className="text-[13px] font-semibold"
+            className="text-sm font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
             {title}
           </h3>
           {hint && (
-            <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
               {hint}
             </p>
           )}
@@ -90,7 +90,7 @@ function Field({
   return (
     <label className="block">
       <span
-        className="mb-1 flex items-center gap-2 text-[11px] font-medium"
+        className="mb-1 flex items-center gap-2 text-xs font-medium"
         style={{ color: "var(--text-secondary)" }}
       >
         {label}
@@ -110,7 +110,7 @@ function Field({
         placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
-        className="w-full rounded-lg border px-3 py-2 font-mono text-xs outline-none transition-base focus:border-[var(--accent)]"
+        className="w-full rounded-lg border px-3 py-2 font-mono text-[13px] outline-none transition-base focus:border-[var(--accent)]"
         style={{
           borderColor: "var(--border)",
           background: "var(--bg-tertiary)",
@@ -857,15 +857,16 @@ export default function SettingsPanel(props: Props) {
   const [tab, setTab] = useState<Tab>("config");
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      {/* 手机：顶部横排 tab；桌面：左侧子导航，宽屏不再是悬浮的细长条 */}
       <div
-        className="shrink-0 border-b backdrop-blur-xl"
+        className="shrink-0 border-b backdrop-blur-xl lg:w-[208px] lg:border-b-0 lg:border-r"
         style={{
           borderColor: "var(--border)",
           background: "var(--bg-elevated, var(--bg-secondary))",
         }}
       >
-        <div className="mx-auto flex w-full max-w-5xl gap-6 px-4 lg:px-6 2xl:max-w-6xl">
+        <div className="flex gap-6 px-4 py-3 lg:sticky lg:top-0 lg:flex-col lg:gap-1 lg:px-3 lg:py-5">
           {TABS.map((item) => {
             const active = tab === item.key;
             return (
@@ -874,9 +875,9 @@ export default function SettingsPanel(props: Props) {
                 type="button"
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
-                className="relative -mb-px border-b-2 py-3 text-[13px] font-medium transition-base"
+                className="rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-base"
                 style={{
-                  borderColor: active ? "var(--accent)" : "transparent",
+                  background: active ? "var(--accent-light)" : "transparent",
                   color: active ? "var(--accent)" : "var(--text-secondary)",
                 }}
               >
@@ -887,11 +888,11 @@ export default function SettingsPanel(props: Props) {
         </div>
       </div>
 
-      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
-        <div className="mx-auto w-full max-w-5xl 2xl:max-w-6xl">
-        {tab === "config" && <ConfigTab />}
-        {tab === "keywords" && <KeywordsTab {...props} />}
-        {tab === "history" && <HistoryTab />}
+      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-10 lg:py-6">
+        <div className="mx-auto w-full max-w-3xl">
+          {tab === "config" && <ConfigTab />}
+          {tab === "keywords" && <KeywordsTab {...props} />}
+          {tab === "history" && <HistoryTab />}
         </div>
       </div>
     </div>
