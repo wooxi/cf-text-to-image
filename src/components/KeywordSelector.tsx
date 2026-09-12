@@ -16,7 +16,7 @@ const CHIP_BASE =
 
 function chipStyle(active: boolean): React.CSSProperties {
   return {
-    background: active ? "var(--accent-light)" : "rgba(255,255,255,0.03)",
+    background: active ? "var(--accent-light)" : "var(--bg-secondary)",
     borderColor: active ? "var(--accent)" : "var(--border)",
     color: active ? "var(--accent)" : "var(--text-secondary)",
   };

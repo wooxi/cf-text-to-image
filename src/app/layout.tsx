@@ -15,7 +15,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0a0e0f",
+  themeColor: "#f4f4f2",
 };
 
 /**
@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN" data-theme="dark" suppressHydrationWarning>
+    <html lang="zh-CN" data-theme="light" suppressHydrationWarning>
       <head>
         {/*
           必须同步执行：defer/async 会让浅色用户先看到一帧深色（FOUC）。
