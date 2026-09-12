@@ -13,11 +13,18 @@ interface Props {
 
 type Tab = "status" | "keywords" | "history";
 
-const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: "status", label: "运行状态", icon: "🩺" },
-  { key: "keywords", label: "关键词", icon: "🏷️" },
-  { key: "history", label: "生成历史", icon: "📋" },
+const TABS: { key: Tab; label: string }[] = [
+  { key: "status", label: "运行状态" },
+  { key: "keywords", label: "关键词" },
+  { key: "history", label: "生成历史" },
 ];
+
+/** 可选变量在「已配置」之外的第二种状态需要一句人话解释 */
+const OPTIONAL_NOTES: Record<string, string> = {
+  IMAGE_BED_ENDPOINT: "成品图改传图床，库里存外链",
+  IMAGE_BED_AUTH_CODE: "与图床的上传认证码一致",
+  IMAGE_BED_CHANNEL: "cfr2 走 R2 无损；telegram 等渠道会压缩",
+};
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
@@ -30,6 +37,92 @@ function Panel({ children }: { children: React.ReactNode }) {
     >
       {children}
     </section>
+  );
+}
+
+/** 卡片外壳：标题栏 + 内容区，替代原来「一个变量一张大卡」的写法。 */
+function Card({
+  title,
+  extra,
+  children,
+}: {
+  title: string;
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="overflow-hidden rounded-xl border"
+      style={{
+        borderColor: "var(--border)",
+        background: "var(--bg-secondary)",
+      }}
+    >
+      <div
+        className="flex items-center justify-between gap-3 border-b px-4 py-2.5"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <h3
+          className="text-[13px] font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {title}
+        </h3>
+        {extra}
+      </div>
+      <div>{children}</div>
+    </section>
+  );
+}
+
+/** 变量行：等宽变量名 + 说明 + 右侧状态点。一行 40px，不再是整张卡。 */
+function EnvRow({
+  name,
+  note,
+  ok,
+  optional,
+}: {
+  name: string;
+  note: string;
+  ok: boolean;
+  optional?: boolean;
+}) {
+  const color = ok
+    ? "var(--success)"
+    : optional
+      ? "var(--text-muted)"
+      : "var(--danger)";
+  return (
+    <div
+      className="flex items-center justify-between gap-3 px-4 py-2 [&+&]:border-t"
+      style={{ borderColor: "var(--border)" }}
+    >
+      <div className="flex min-w-0 items-baseline gap-2.5">
+        <code
+          className="shrink-0 text-xs font-mono"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {name}
+        </code>
+        <span
+          className="truncate text-[10px]"
+          style={{ color: "var(--text-muted)" }}
+          title={note}
+        >
+          {note}
+        </span>
+      </div>
+      <span
+        className="flex shrink-0 items-center gap-1.5 text-[11px]"
+        style={{ color }}
+      >
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: color }}
+        />
+        {ok ? "已配置" : optional ? "未配置" : "缺失"}
+      </span>
+    </div>
   );
 }
 
@@ -59,230 +152,222 @@ function StatusTab() {
     }
   };
 
-  if (!status)
+  if (!status) {
     return (
-      <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-        读取中…
-      </p>
+      <div className="space-y-3">
+        {[0, 1].map((key) => (
+          <div
+            key={key}
+            className="animate-skeleton h-32 rounded-xl"
+            style={{ border: "1px solid var(--border)" }}
+          />
+        ))}
+      </div>
     );
+  }
 
   const missing = new Set(status.missing);
+  const healthy = status.missing.length === 0;
+  const optionalSet = status.optionalSet ?? {};
+
+  const summary: [string, string][] = [
+    ["LLM 模型", status.resolved.llmModel || "—"],
+    ["图像模型", status.resolved.imageModel || "—"],
+    [
+      "成品图存放",
+      status.storage === "image-bed"
+        ? `图床 ${status.resolved.imageBedEndpoint}`.trim()
+        : "本站 R2",
+    ],
+    [
+      "系统提示词",
+      status.overrides.image ? "已自定义" : "内置默认",
+    ],
+  ];
+
+  const prompts: [string, string, boolean][] = [
+    [
+      "PROMPT_SYSTEM_IMAGE",
+      status.resolved.promptSystemImage,
+      status.overrides.image,
+    ],
+    [
+      "PROMPT_SYSTEM_POLISH",
+      status.resolved.promptSystemPolish,
+      status.overrides.polish,
+    ],
+  ];
 
   return (
-    <div className="space-y-5">
-      <div
-        className="rounded-xl border px-4 py-3 text-xs leading-relaxed"
+    <div className="space-y-4">
+      {/* 总览：一眼看到服务是否健康 + 关键参数 */}
+      <section
+        className="rounded-xl border p-4"
         style={{
-          borderColor: "var(--border)",
-          background: "var(--bg-tertiary)",
-          color: "var(--text-secondary)",
+          borderColor: healthy ? "var(--border)" : "var(--danger)",
+          background: "var(--bg-secondary)",
         }}
       >
-        所有配置与密钥都来自 Cloudflare 的环境变量（控制台 → Workers &amp; Pages →
-        cf-text-to-image → Settings → Variables and Secrets）。
-        系统内不存储也不能修改它们；改了之后重新部署一次即生效。
-      </div>
-
-      <section>
-        <h3
-          className="mb-2 text-sm font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          环境变量
-        </h3>
-        <div className="space-y-1.5">
-          {status.required.map(({ key, scope }) => {
-            const ok = !missing.has(key);
-            return (
-              <div
-                key={key}
-                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                style={{
-                  borderColor: "var(--border)",
-                  background: "var(--bg-secondary)",
-                }}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+              style={{
+                background: healthy ? "var(--success-bg)" : "var(--danger-bg)",
+                color: healthy ? "var(--success)" : "var(--danger)",
+              }}
+              aria-hidden
+            >
+              {healthy ? "✓" : "!"}
+            </span>
+            <div className="min-w-0">
+              <p
+                className="text-sm font-semibold"
+                style={{ color: "var(--text-primary)" }}
               >
-                <div className="min-w-0">
-                  <code
-                    className="text-xs font-mono"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    {key}
-                  </code>
-                  <p
-                    className="text-[10px]"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {scope}
-                  </p>
-                </div>
-                <span
-                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
-                  style={{
-                    background: ok ? "var(--success-bg)" : "var(--danger-bg)",
-                    color: ok ? "var(--success)" : "var(--danger)",
-                  }}
-                >
-                  {ok ? "✓ 已配置" : "✗ 缺失"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {status.missing.length > 0 && (
-          <p className="mt-2 text-xs" style={{ color: "var(--danger)" }}>
-            缺少 {status.missing.join("、")}，服务无法正常工作。
-          </p>
-        )}
-
-        <h3
-          className="mb-2 mt-4 text-sm font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          可选变量
-        </h3>
-        <div className="space-y-1.5">
-          {status.optional.map(({ key, scope }) => {
-            const configured = Boolean(status.optionalSet?.[key]);
-            return (
-              <div
-                key={key}
-                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                style={{
-                  borderColor: "var(--border)",
-                  background: "var(--bg-secondary)",
-                }}
+                {healthy ? "服务配置完整" : `缺少 ${status.missing.length} 项配置`}
+              </p>
+              <p
+                className="mt-0.5 text-[11px] leading-relaxed"
+                style={{ color: "var(--text-muted)" }}
               >
-                <div className="min-w-0">
-                  <code
-                    className="text-xs font-mono"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    {key}
-                  </code>
-                  <p
-                    className="text-[10px]"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {scope} · 不配则成品图存 R2
-                  </p>
-                </div>
-                <span
-                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
-                  style={{
-                    background: configured
-                      ? "var(--success-bg)"
-                      : "var(--bg-tertiary)",
-                    color: configured ? "var(--success)" : "var(--text-muted)",
-                  }}
-                >
-                  {configured ? "✓ 已配置" : "未配置"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h3
-            className="text-sm font-semibold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            当前生效值
-          </h3>
+                {healthy
+                  ? `${status.required.length} 个必需变量已全部就绪，可以正常出图`
+                  : `缺少 ${status.missing.join("、")}，服务无法正常工作`}
+              </p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => void ping()}
-            disabled={pinging}
-            className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-base hover:border-[var(--accent)] disabled:opacity-50"
-            style={{ borderColor: "var(--border)", color: "var(--accent)" }}
+            disabled={pinging || !healthy}
+            className="shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-medium transition-base hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-secondary)",
+            }}
           >
             {pinging ? "检测中…" : "测试连通性"}
           </button>
         </div>
-        <dl className="space-y-1.5">
-          {(
-            [
-              ["LLM 端点", status.resolved.llmEndpoint],
-              ["LLM 模型", status.resolved.llmModel],
-              ["图像端点", status.resolved.imageEndpoint],
-              ["图像模型", status.resolved.imageModel],
-              [
-                "成品图存放",
-                status.storage === "image-bed"
-                  ? `图床 ${status.resolved.imageBedEndpoint}`.trim()
-                  : "本站 R2",
-              ],
-            ] as const
-          ).map(([label, value]) => (
-            <div
-              key={label}
-              className="flex items-baseline justify-between gap-3 text-xs"
-            >
-              <dt className="shrink-0" style={{ color: "var(--text-muted)" }}>
+
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          {summary.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt
+                className="text-[10px] uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
                 {label}
               </dt>
               <dd
-                className="truncate font-mono"
+                className="mt-0.5 truncate font-mono text-xs"
                 style={{ color: "var(--text-secondary)" }}
-                title={value || "（未配置）"}
+                title={value}
               >
-                {value || "（未配置）"}
+                {value || "—"}
               </dd>
             </div>
           ))}
         </dl>
       </section>
 
-      <section className="space-y-3">
-        <h3
-          className="text-sm font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          生效中的系统提示词
-        </h3>
-        {(
-          [
-            [
-              "PROMPT_SYSTEM_IMAGE",
-              status.resolved.promptSystemImage,
-              status.overrides.image,
-            ],
-            [
-              "PROMPT_SYSTEM_POLISH",
-              status.resolved.promptSystemPolish,
-              status.overrides.polish,
-            ],
-          ] as const
-        ).map(([key, value, overridden]) => (
-          <Panel key={key}>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <code
-                className="text-[11px] font-mono"
+      <Card
+        title="环境变量"
+        extra={
+          <span
+            className="text-[11px] tabular-nums"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {status.required.length - status.missing.length}/
+            {status.required.length} 已配置
+          </span>
+        }
+      >
+        {status.required.map(({ key, scope }) => (
+          <EnvRow
+            key={key}
+            name={key}
+            note={`${scope}${scope === "Worker" ? " 环境变量" : ""}`}
+            ok={!missing.has(key)}
+          />
+        ))}
+      </Card>
+
+      <Card
+        title="可选变量"
+        extra={
+          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+            不配也能跑，成品图回退存 R2
+          </span>
+        }
+      >
+        {status.optional.map(({ key }) => (
+          <EnvRow
+            key={key}
+            name={key}
+            note={OPTIONAL_NOTES[key] ?? ""}
+            ok={Boolean(optionalSet[key])}
+            optional
+          />
+        ))}
+      </Card>
+
+      <Card title="系统提示词">
+        {prompts.map(([key, value, overridden]) => (
+          <details
+            key={key}
+            className="group [&+&]:border-t"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 transition-base hover:bg-[var(--bg-tertiary)]">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="text-[10px] transition-transform group-open:rotate-90"
+                  style={{ color: "var(--text-muted)" }}
+                  aria-hidden
+                >
+                  ▶
+                </span>
+                <code
+                  className="shrink-0 text-xs font-mono"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {key}
+                </code>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px]"
+                  style={{
+                    background: overridden
+                      ? "var(--accent-light)"
+                      : "var(--bg-tertiary)",
+                    color: overridden ? "var(--accent)" : "var(--text-muted)",
+                  }}
+                >
+                  {overridden ? "已自定义" : "内置默认"}
+                </span>
+              </div>
+              <span
+                className="shrink-0 text-[11px] tabular-nums"
                 style={{ color: "var(--text-muted)" }}
               >
-                {key}
-              </code>
-              <span
-                className="text-[10px]"
-                style={{
-                  color: overridden ? "var(--accent)" : "var(--text-muted)",
-                }}
-              >
-                {overridden ? "已被环境变量覆盖" : "使用内置默认"}
+                {value.length} 字
               </span>
-            </div>
-            <p
-              className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed"
+            </summary>
+            <div
+              className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 text-[11px] leading-relaxed"
               style={{ color: "var(--text-secondary)" }}
             >
               {value}
-            </p>
-          </Panel>
+            </div>
+          </details>
         ))}
-      </section>
+      </Card>
+
+      <p className="px-1 text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+        变量都在 Cloudflare 控制台改：Workers &amp; Pages → cf-text-to-image → Settings →
+        Variables and Secrets。改完重新部署一次生效；密钥值永远不会回传到这里。
+      </p>
     </div>
   );
 }
@@ -746,36 +831,40 @@ export default function SettingsPanel(props: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div
-        className="flex shrink-0 gap-1 border-b px-4 pt-3"
-        style={{ borderColor: "var(--border)" }}
+        className="shrink-0 border-b backdrop-blur-xl"
+        style={{
+          borderColor: "var(--border)",
+          background: "var(--bg-elevated, var(--bg-secondary))",
+        }}
       >
-        {TABS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setTab(item.key)}
-            className="rounded-t-lg px-4 py-2.5 text-xs font-medium transition-base"
-            style={{
-              background:
-                tab === item.key ? "var(--bg-secondary)" : "transparent",
-              color:
-                tab === item.key ? "var(--accent)" : "var(--text-secondary)",
-              borderBottom:
-                tab === item.key
-                  ? "2px solid var(--accent)"
-                  : "2px solid transparent",
-            }}
-          >
-            <span aria-hidden>{item.icon}</span>
-            <span className="ml-1.5">{item.label}</span>
-          </button>
-        ))}
+        <div className="mx-auto flex w-full max-w-4xl gap-6 px-4 lg:px-6">
+          {TABS.map((item) => {
+            const active = tab === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                aria-current={active ? "page" : undefined}
+                className="relative -mb-px border-b-2 py-3 text-[13px] font-medium transition-base"
+                style={{
+                  borderColor: active ? "var(--accent)" : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-secondary)",
+                }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
+        <div className="mx-auto w-full max-w-4xl">
         {tab === "status" && <StatusTab />}
         {tab === "keywords" && <KeywordsTab {...props} />}
         {tab === "history" && <HistoryTab />}
+        </div>
       </div>
     </div>
   );

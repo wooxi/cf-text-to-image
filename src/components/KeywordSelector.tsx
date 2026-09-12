@@ -133,7 +133,7 @@ export default function KeywordSelector({
                         color: "var(--text-muted)",
                       }}
                     >
-                      输出参数
+                      参数
                     </span>
                   )}
                 </h3>
