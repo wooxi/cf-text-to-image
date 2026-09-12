@@ -206,7 +206,7 @@ export default function HomePage() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-dvh items-center justify-center">
         <div
           className="h-6 w-6 animate-spin rounded-full border-2"
           style={{
@@ -231,7 +231,7 @@ export default function HomePage() {
     setViewerIndex(records.indexOf(record));
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-dvh flex-col overflow-hidden">
       <Header onOpenSettings={() => setPanel("settings")} />
 
       <div className="flex min-h-0 flex-1">

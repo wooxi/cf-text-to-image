@@ -112,7 +112,7 @@ export default function KeywordSelector({
       </div>
 
       {/* 宽屏走多列：7 个分组竖排要滚很久，分列后一屏基本能看全 */}
-      <div className="columns-1 gap-x-7 lg:columns-2 2xl:columns-3">
+      <div className="columns-1 gap-x-7 md:columns-2 lg:columns-1 xl:columns-2 2xl:columns-3">
       {visibleGroups.map(({ group, keywords }) => {
         const selectedInGroup = group.keywords.filter((kw) =>
           selected.includes(kw.name),

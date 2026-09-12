@@ -147,7 +147,7 @@ export default function ImageUploader({
           {busy ? "读取中…" : "点击选择、拖拽到此处，或直接 Ctrl/⌘+V 粘贴"}
         </p>
         <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-          单张 ≤ {MAX_FILE_MB}MB · 最多 {maxImages} 张
+          单张不超过 {MAX_FILE_MB}MB，最多 {maxImages} 张
         </p>
       </div>
 

@@ -45,10 +45,10 @@ export default function TasksPanel({ tasks, onRetry, onDelete }: Props) {
     items.length === 0 ? null : (
       <section className="space-y-2">
         <h3
-          className="text-xs font-semibold uppercase tracking-wider"
+          className="text-[13px] font-semibold"
           style={{ color: "var(--text-muted)" }}
         >
-          {title} · {items.length}
+          {title}（{items.length}）
         </h3>
         {items.map((task) => {
           const isFailed = task.status === "failed";

@@ -38,7 +38,7 @@ export default function Gate() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4">
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.5]"
         style={{
@@ -64,7 +64,7 @@ export default function Gate() {
             文生图<span style={{ color: "var(--accent)" }}>工作室</span>
           </h1>
           <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
-            私人工作台 · 请输入访问密码
+            私人工作台，请输入访问密码
           </p>
         </div>
 

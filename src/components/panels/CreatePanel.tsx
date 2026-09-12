@@ -34,6 +34,8 @@ export default function CreatePanel({
   const [selected, setSelected] = useState<string[]>([]);
   const [refImages, setRefImages] = useState<string[]>([]);
   const [busy, setBusy] = useState<"prompt" | "polish" | "submit" | null>(null);
+  /** 手机上描述区默认收起，把屏幕让给选词；桌面端始终展开 */
+  const [composerOpen, setComposerOpen] = useState(false);
   const lock = useRef(false);
 
   const parameterGroups = useMemo(
@@ -141,6 +143,7 @@ export default function CreatePanel({
           className="shrink-0 border-b px-4 py-3 lg:px-6"
           style={{ borderColor: "var(--border)" }}
         >
+          <div className="mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-none">
           <div
             className="inline-flex gap-1 rounded-lg p-0.5"
             style={{ background: "var(--bg-tertiary)" }}
@@ -165,10 +168,11 @@ export default function CreatePanel({
               </button>
             ))}
           </div>
+          </div>
         </div>
 
         <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
-          <div className="mx-auto w-full max-w-4xl space-y-5">
+          <div className="mx-auto w-full max-w-4xl space-y-5 xl:max-w-6xl 2xl:max-w-none">
           {type === "img2img" && (
             <section
               className="rounded-xl border p-4"
@@ -211,27 +215,46 @@ export default function CreatePanel({
 
       {/* 右栏：创作区（桌面固定列，移动端吸底） */}
       <section
-        className="shrink-0 border-t p-4 lg:w-[380px] lg:border-l lg:border-t-0 xl:w-[420px]"
+        className="shrink-0 border-t p-4 lg:w-[340px] lg:border-l lg:border-t-0 xl:w-[400px] 2xl:w-[440px]"
         style={{
           borderColor: "var(--border)",
           background: "var(--bg-secondary)",
         }}
       >
-        <div className="flex h-full flex-col gap-3">
+        <div className="flex flex-col gap-3 lg:h-full">
           <div className="flex items-center justify-between">
             <h2
-              className="text-xs font-semibold uppercase tracking-[0.14em]"
-              style={{ color: "var(--text-muted)" }}
+              className="text-[13px] font-semibold"
+              style={{ color: "var(--text-primary)" }}
             >
               画面描述
             </h2>
             <span
-              className="text-[11px] tabular-nums"
+              className="hidden text-[11px] tabular-nums lg:inline"
               style={{ color: "var(--text-muted)" }}
             >
               {prompt.length} 字
             </span>
+            <button
+              type="button"
+              onClick={() => setComposerOpen((open) => !open)}
+              aria-expanded={composerOpen}
+              className="text-[11px] lg:hidden"
+              style={{ color: composerOpen ? "var(--text-muted)" : "var(--accent)" }}
+            >
+              {composerOpen
+                ? "收起"
+                : prompt.length > 0
+                  ? `写描述（${prompt.length} 字）`
+                  : "写描述"}
+            </button>
           </div>
+
+          <div
+            className={`${
+              composerOpen ? "flex" : "hidden"
+            } flex-col gap-3 lg:flex lg:min-h-0 lg:flex-1`}
+          >
 
           <textarea
             value={prompt}
@@ -259,17 +282,19 @@ export default function CreatePanel({
           >
             <div className="flex shrink-0 items-baseline justify-between">
               <span
-                className="text-[10px] uppercase tracking-wider"
+                className="text-[11px]"
                 style={{ color: "var(--text-muted)" }}
               >
                 已选关键词
               </span>
-              <span
-                className="text-[10px] tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {selected.length > 0 ? `${selected.length} 个 · 点一下移除` : ""}
-              </span>
+              {selected.length > 0 && (
+                <span
+                  className="text-[11px] tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {selected.length} 个
+                </span>
+              )}
             </div>
             <div className="scrollbar-thin flex flex-1 flex-wrap content-start gap-1.5 overflow-y-auto">
               {selected.map((name) => (
@@ -279,6 +304,7 @@ export default function CreatePanel({
                   onClick={() =>
                     setSelected((prev) => prev.filter((item) => item !== name))
                   }
+                  title="点一下移除"
                   className="h-fit rounded-md px-2 py-0.5 text-[11px] transition-base hover:opacity-70"
                   style={{
                     background: "var(--accent-light)",
@@ -321,6 +347,8 @@ export default function CreatePanel({
                 {name}
               </span>
             ))}
+          </div>
+
           </div>
 
           <div className="flex shrink-0 flex-col gap-2">
