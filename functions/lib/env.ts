@@ -75,16 +75,16 @@ const IMAGE_KEYS = ["IMAGE_ENDPOINT", "IMAGE_API_KEY", "IMAGE_MODEL"] as const;
 
 /** 供设置页自检用：全部变量，以及各自需要配置在哪个服务上。 */
 export const ENV_VARS: readonly { key: ConfigKey; scope: string }[] = [
-  ...AUTH_KEYS.map((key) => ({ key, scope: "Pages" })),
-  ...LLM_KEYS.map((key) => ({ key, scope: "Pages" })),
-  ...IMAGE_KEYS.map((key) => ({ key, scope: "Pages + Worker" })),
+  ...AUTH_KEYS.map((key) => ({ key, scope: "Worker" })),
+  ...LLM_KEYS.map((key) => ({ key, scope: "Worker" })),
+  ...IMAGE_KEYS.map((key) => ({ key, scope: "Worker" })),
 ];
 
 /** 可选变量：不配也能跑（生成结果落 R2），配了才走图床。 */
 export const OPTIONAL_ENV_VARS: readonly { key: ConfigKey; scope: string }[] = [
-  { key: "IMAGE_BED_ENDPOINT", scope: "Pages + Worker" },
-  { key: "IMAGE_BED_AUTH_CODE", scope: "Pages + Worker" },
-  { key: "IMAGE_BED_CHANNEL", scope: "Pages + Worker" },
+  { key: "IMAGE_BED_ENDPOINT", scope: "Worker" },
+  { key: "IMAGE_BED_AUTH_CODE", scope: "Worker" },
+  { key: "IMAGE_BED_CHANNEL", scope: "Worker" },
 ];
 
 export function missingEnvVars(env: Env): string[] {

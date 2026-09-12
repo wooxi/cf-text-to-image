@@ -44,6 +44,10 @@ export async function onRequestGet(context: {
       },
       // 生成结果存哪里：配了图床就是图床外链，否则是 R2 + /api/images 代理
       storage: env.IMAGE_BED_ENDPOINT?.trim() ? "image-bed" : "r2",
+      // 可选变量是否已设置（只回布尔，密钥值永不回传）
+      optionalSet: Object.fromEntries(
+        OPTIONAL_ENV_VARS.map(({ key }) => [key, Boolean(env[key]?.trim())]),
+      ),
     });
   } catch (e) {
     return handleError("config:get", e, "读取状态失败");

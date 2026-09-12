@@ -206,20 +206,34 @@ async function processImage(env: Env, taskId: number, task: TaskRow) {
  * 没配图床（或图床临时故障）则落 R2，经 /api/images 代理读取。
  * 图床失败刻意不判任务失败——图已经在手上，退一步存 R2 比丢掉重生成划算。
  */
+const IMAGE_BED_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function storeImage(
   env: Env,
   bytes: Uint8Array,
   contentType: string,
 ): Promise<string> {
   if (getImageBedSettings(env)) {
-    try {
-      const url = await uploadToImageBed(env, bytes, contentType);
-      logTask("image-bed:ok", { url });
-      return url;
-    } catch (error) {
-      logTask("image-bed:fail", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    // 图床偶发 530 / 源站 DNS 抖动，重试两次再决定回退——
+    // 回退到 R2 的图不会丢，但会让图库链接形态不一致，能避免就避免
+    for (let attempt = 1; attempt <= IMAGE_BED_ATTEMPTS; attempt++) {
+      try {
+        const url = await uploadToImageBed(env, bytes, contentType);
+        logTask("image-bed:ok", { url, attempt });
+        return url;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const last = attempt === IMAGE_BED_ATTEMPTS;
+        logTask(last ? "image-bed:fail" : "image-bed:retry", {
+          attempt,
+          error: detail,
+        });
+        if (!last) await sleep(600 * attempt);
+      }
     }
   }
 

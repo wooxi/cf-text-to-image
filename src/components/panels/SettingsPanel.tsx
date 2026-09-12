@@ -78,9 +78,9 @@ function StatusTab() {
           color: "var(--text-secondary)",
         }}
       >
-        所有配置与密钥都来自 Cloudflare 控制台的环境变量（Pages 项目 → Settings
-        → Variables and Secrets）。
-        系统内不存储也不能修改它们，改完需要重新部署才生效。
+        所有配置与密钥都来自 Cloudflare 的环境变量（控制台 → Workers &amp; Pages →
+        cf-text-to-image → Settings → Variables and Secrets）。
+        系统内不存储也不能修改它们；改了之后重新部署一次即生效。
       </div>
 
       <section>
@@ -134,6 +134,54 @@ function StatusTab() {
             缺少 {status.missing.join("、")}，服务无法正常工作。
           </p>
         )}
+
+        <h3
+          className="mb-2 mt-4 text-sm font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          可选变量
+        </h3>
+        <div className="space-y-1.5">
+          {status.optional.map(({ key, scope }) => {
+            const configured = Boolean(status.optionalSet?.[key]);
+            return (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                style={{
+                  borderColor: "var(--border)",
+                  background: "var(--bg-secondary)",
+                }}
+              >
+                <div className="min-w-0">
+                  <code
+                    className="text-xs font-mono"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {key}
+                  </code>
+                  <p
+                    className="text-[10px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {scope} · 不配则成品图存 R2
+                  </p>
+                </div>
+                <span
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                  style={{
+                    background: configured
+                      ? "var(--success-bg)"
+                      : "var(--bg-tertiary)",
+                    color: configured ? "var(--success)" : "var(--text-muted)",
+                  }}
+                >
+                  {configured ? "✓ 已配置" : "未配置"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section>
@@ -161,6 +209,12 @@ function StatusTab() {
               ["LLM 模型", status.resolved.llmModel],
               ["图像端点", status.resolved.imageEndpoint],
               ["图像模型", status.resolved.imageModel],
+              [
+                "成品图存放",
+                status.storage === "image-bed"
+                  ? `图床 ${status.resolved.imageBedEndpoint}`.trim()
+                  : "本站 R2",
+              ],
             ] as const
           ).map(([label, value]) => (
             <div
