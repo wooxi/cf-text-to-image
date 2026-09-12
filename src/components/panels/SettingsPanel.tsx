@@ -201,6 +201,7 @@ function ConfigTab() {
         </p>
       )}
 
+      <div className="grid gap-4 xl:grid-cols-2">
       <Card
         title="LLM 接口"
         hint="生成提示词 / 润色用，OpenAI 兼容"
@@ -314,6 +315,7 @@ function ConfigTab() {
         />
         </div>
       </Card>
+      </div>
 
       <Card
         title="系统提示词"
@@ -625,7 +627,7 @@ function KeywordsTab({ groups, reloadGroups }: Props) {
               </button>
             </div>
 
-            <div className="grid gap-1 sm:grid-cols-2">
+            <div className="flex flex-wrap gap-2">
               {filtered.map((keyword) => {
                 const index = active.keywords.indexOf(keyword);
                 return (
@@ -637,7 +639,7 @@ function KeywordsTab({ groups, reloadGroups }: Props) {
                       background: "var(--bg-tertiary)",
                     }}
                   >
-                    <span className="flex-1 truncate text-xs">
+                    <span className="truncate text-xs">
                       {keyword.name}
                     </span>
                     <button
@@ -771,7 +773,7 @@ function HistoryTab() {
         </p>
       )}
 
-      <ul className="space-y-2">
+      <ul className="grid gap-3 xl:grid-cols-2">
         {items.map((record) => (
           <li
             key={record.id}
@@ -891,8 +893,8 @@ export default function SettingsPanel(props: Props) {
         </div>
       </div>
 
-      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-10 lg:py-6">
-        <div className="mx-auto w-full max-w-3xl">
+      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-8 2xl:px-10 lg:py-6">
+        <div className="w-full">
           {tab === "config" && <ConfigTab />}
           {tab === "keywords" && <KeywordsTab {...props} />}
           {tab === "history" && <HistoryTab />}

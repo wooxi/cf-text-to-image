@@ -18,7 +18,7 @@ export default function Header({
 
   return (
     <header
-      className="sticky top-0 z-40 border-b backdrop-blur-xl"
+      className="sticky top-0 z-40 border-b backdrop-blur-xl lg:hidden"
       style={{
         borderColor: "var(--border)",
         background: "var(--bg-elevated, var(--bg-secondary))",
