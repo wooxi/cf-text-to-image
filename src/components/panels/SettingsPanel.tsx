@@ -9,6 +9,9 @@ import { useToast } from "../Toast";
 interface Props {
   groups: KeywordGroup[];
   reloadGroups: () => Promise<void>;
+  /** 由侧栏树形导航控制 */
+  tab: Tab;
+  onTabChange: (tab: Tab) => void;
 }
 
 type Tab = "config" | "keywords" | "history";
@@ -854,19 +857,19 @@ function HistoryTab() {
 }
 
 export default function SettingsPanel(props: Props) {
-  const [tab, setTab] = useState<Tab>("config");
+  const { groups, reloadGroups, tab, onTabChange: setTab } = props;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      {/* 手机：顶部横排 tab；桌面：左侧子导航，宽屏不再是悬浮的细长条 */}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* 手机：顶部横排 tab；桌面由侧栏的树形导航控制，不再出现第二层菜单 */}
       <div
-        className="shrink-0 border-b backdrop-blur-xl lg:w-[208px] lg:border-b-0 lg:border-r"
+        className="shrink-0 border-b backdrop-blur-xl lg:hidden"
         style={{
           borderColor: "var(--border)",
           background: "var(--bg-elevated, var(--bg-secondary))",
         }}
       >
-        <div className="flex gap-6 px-4 py-3 lg:sticky lg:top-0 lg:flex-col lg:gap-1 lg:px-3 lg:py-5">
+        <div className="flex gap-6 px-4 py-3">
           {TABS.map((item) => {
             const active = tab === item.key;
             return (

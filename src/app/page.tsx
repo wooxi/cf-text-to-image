@@ -4,6 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ImageRecord, KeywordGroup, TaskRecord } from "@/types";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { useTheme } from "@/components/ThemeProvider";
+import {
+  ChevronDown,
+  Images,
+  ListTodo,
+  LogOut,
+  Moon,
+  Settings2,
+  Sparkles,
+  Sun,
+} from "lucide-react";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import Gate from "@/components/Gate";
@@ -16,17 +27,120 @@ import SettingsPanel from "@/components/panels/SettingsPanel";
 
 type PanelKey = "create" | "gallery" | "tasks" | "settings";
 
-const NAV: { key: PanelKey; label: string; icon: string; hint: string }[] = [
-  {
-    key: "create",
-    label: "创作台",
-    icon: "✨",
-    hint: "选词 · 写提示词 · 提交",
-  },
-  { key: "gallery", label: "图库", icon: "🖼️", hint: "已生成的作品" },
-  { key: "tasks", label: "任务", icon: "📋", hint: "进行中与失败的任务" },
-  { key: "settings", label: "设置", icon: "⚙️", hint: "状态 · 关键词 · 历史" },
+const NAV: { key: PanelKey; label: string; icon: typeof Sparkles }[] = [
+  { key: "create", label: "创作台", icon: Sparkles },
+  { key: "gallery", label: "图库", icon: Images },
+  { key: "tasks", label: "任务", icon: ListTodo },
+  { key: "settings", label: "设置", icon: Settings2 },
 ];
+
+type SettingsTab = "config" | "keywords" | "history";
+
+const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+  { key: "config", label: "配置" },
+  { key: "keywords", label: "关键词" },
+  { key: "history", label: "生成历史" },
+];
+
+/** 侧栏树形导航：设置节点可二次展开出它的三个子页 */
+function NavTree({
+  panel,
+  onSelect,
+  settingsTab,
+  onSettingsTab,
+  counts,
+}: {
+  panel: PanelKey;
+  onSelect: (key: PanelKey) => void;
+  settingsTab: SettingsTab;
+  onSettingsTab: (key: SettingsTab) => void;
+  counts: Record<PanelKey, number>;
+}) {
+  const [open, setOpen] = useState(panel === "settings");
+  const settingsActive = panel === "settings";
+
+  const row = (active: boolean) => ({
+    className:
+      "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-base",
+    style: {
+      background: active ? "var(--accent-light)" : "transparent",
+      color: active ? "var(--accent)" : "var(--text-secondary)",
+    },
+  });
+
+  return (
+    <nav className="flex flex-col gap-0.5">
+      {NAV.filter((item) => item.key !== "settings").map((item) => {
+        const active = panel === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onSelect(item.key)}
+            aria-current={active ? "page" : undefined}
+            {...row(active)}
+          >
+            <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+            {item.label}
+            {counts[item.key] > 0 && (
+              <span className="ml-auto text-[10px] tabular-nums opacity-70">
+                {counts[item.key]}
+              </span>
+            )}
+          </button>
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((value) => !value);
+          onSelect("settings");
+        }}
+        aria-expanded={open}
+        {...row(settingsActive)}
+      >
+        <Settings2 className="h-4 w-4 shrink-0" aria-hidden />
+        设置
+        <ChevronDown
+          className={`ml-auto h-3.5 w-3.5 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+          aria-hidden
+        />
+      </button>
+
+      {open && (
+        <div
+          className="ml-3 flex flex-col gap-0.5 border-l pl-2.5"
+          style={{ borderColor: "var(--border)" }}
+        >
+          {SETTINGS_TABS.map((item) => {
+            const active = settingsActive && settingsTab === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  onSelect("settings");
+                  onSettingsTab(item.key);
+                }}
+                aria-current={active ? "page" : undefined}
+                className="rounded-md px-2.5 py-1.5 text-left text-xs transition-base"
+                style={{
+                  background: active ? "var(--accent-light)" : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-muted)",
+                }}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </nav>
+  );
+}
 
 /** 轮询只关心「还没落定」的任务：成功的会进入图库，失败的要留在列表里供重试。 */
 const POLLED_STATUSES = ["pending", "processing", "failed"];
@@ -34,11 +148,13 @@ const POLL_INTERVAL_MS = 3000;
 const HISTORY_PAGE_SIZE = 30;
 
 export default function HomePage() {
-  const { authenticated, ready } = useAuth();
+  const { authenticated, ready, logout } = useAuth();
+  const { theme, toggle } = useTheme();
   const toast = useToast();
   const confirm = useConfirm();
 
   const [panel, setPanel] = useState<PanelKey>("create");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("config");
   const [groups, setGroups] = useState<KeywordGroup[]>([]);
   const [prompt, setPrompt] = useState("");
 
@@ -237,45 +353,48 @@ export default function HomePage() {
     <div className="flex h-dvh flex-col overflow-hidden">
       <Header onOpenSettings={() => setPanel("settings")} />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 gap-3 p-3 lg:gap-4 lg:p-4">
         <aside
-          className="hidden w-[200px] shrink-0 flex-col gap-1 overflow-y-auto border-r p-3 lg:flex"
-          style={{ borderColor: "var(--border)" }}
+          className="hidden w-[248px] shrink-0 flex-col overflow-y-auto rounded-2xl border p-3 lg:flex"
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--bg-secondary)",
+          }}
         >
-          {NAV.map((item) => {
-            const active = panel === item.key;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setPanel(item.key)}
-                className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-base"
-                style={{
-                  background: active ? "var(--accent-light)" : "transparent",
-                  color: active ? "var(--accent)" : "var(--text-secondary)",
-                }}
-                title={item.hint}
+          <div className="mb-3 flex items-center gap-2.5 px-2 pt-1">
+            <img src="/icon.svg" alt="" className="h-8 w-8" />
+            <div className="min-w-0">
+              <div
+                className="truncate text-sm font-semibold"
+                style={{ color: "var(--text-primary)" }}
               >
-                <span className="flex items-center gap-2">
-                  <span aria-hidden>{item.icon}</span>
-                  {item.label}
-                </span>
-                {counts[item.key] > 0 && (
-                  <span className="text-[10px] tabular-nums opacity-70">
-                    {counts[item.key]}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+                文生图工作室
+              </div>
+              <div
+                className="truncate text-[10px] uppercase tracking-[0.18em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Text to Image Studio
+              </div>
+            </div>
+          </div>
 
-          <div
-            className="mt-3 rounded-lg border p-3"
-            style={{
-              borderColor: "var(--border)",
-              background: "var(--bg-secondary)",
-            }}
-          >
+          <NavTree
+            panel={panel}
+            onSelect={setPanel}
+            settingsTab={settingsTab}
+            onSettingsTab={setSettingsTab}
+            counts={counts}
+          />
+
+          <div className="mt-auto space-y-2 pt-3">
+            <div
+              className="rounded-lg border p-3"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg-tertiary)",
+              }}
+            >
             {(
               [
                 [
@@ -301,10 +420,49 @@ export default function HomePage() {
                 </span>
               </div>
             ))}
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={toggle}
+                title={theme === "dark" ? "切换浅色" : "切换深色"}
+                className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border text-xs transition-base hover:border-[var(--border-hover)]"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              >
+                {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                {theme === "dark" ? "浅色" : "深色"}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: "退出登录？",
+                      message: "需要重新输入访问密码才能继续使用。",
+                      confirmLabel: "退出",
+                      danger: true,
+                    })
+                  ) {
+                    await logout();
+                  }
+                }}
+                className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border text-xs transition-base hover:border-[var(--danger)] hover:text-[var(--danger)]"
+                style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                退出
+              </button>
+            </div>
           </div>
         </aside>
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col pb-16 lg:pb-0">
+        <main
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border pb-16 lg:pb-0"
+          style={{
+            borderColor: "var(--border)",
+            background: "var(--bg-secondary)",
+          }}
+        >
           {panel === "create" && (
             <CreatePanel
               groups={groups}
@@ -341,7 +499,12 @@ export default function HomePage() {
           )}
 
           {panel === "settings" && (
-            <SettingsPanel groups={groups} reloadGroups={loadGroups} />
+            <SettingsPanel
+              groups={groups}
+              reloadGroups={loadGroups}
+              tab={settingsTab}
+              onTabChange={setSettingsTab}
+            />
           )}
         </main>
       </div>
@@ -365,9 +528,7 @@ export default function HomePage() {
               className="relative flex flex-1 flex-col items-center gap-0.5 py-2.5 transition-base"
               style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}
             >
-              <span className="text-lg leading-none" aria-hidden>
-                {item.icon}
-              </span>
+              <item.icon className="h-5 w-5" aria-hidden />
               <span className="text-[10px] font-medium">{item.label}</span>
               {counts[item.key] > 0 && (
                 <span

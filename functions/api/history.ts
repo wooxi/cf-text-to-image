@@ -29,7 +29,7 @@ export async function onRequestGet(context: {
     // 多取一条用来判断还有没有下一页
     const filter = before > 0 ? "WHERE id < ?" : "";
     const params = before > 0 ? [before, limit + 1] : [limit + 1];
-    const [rows, totalRow] = await Promise.all([
+    const [rowsResult, totalRow] = await Promise.all([
       context.env.DB.prepare(
         `SELECT ${COLUMNS} FROM image_history ${filter} ORDER BY id DESC LIMIT ?`,
       )
@@ -39,6 +39,7 @@ export async function onRequestGet(context: {
         n: number;
       }>(),
     ]);
+    const rows = rowsResult.results;
     const hasMore = rows.length > limit;
 
     return ok({
