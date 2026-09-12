@@ -1,8 +1,9 @@
-import { getImageSettings } from "./lib/env";
+import { getImageBedSettings, getImageSettings, loadConfig } from "./lib/env";
 import type { Env } from "./lib/env";
+import type { ImageBedSettings } from "./lib/env";
 import { normalizeEndpoint } from "./lib/endpoints";
 import { extForContentType, IMAGE_PREFIX, REF_PREFIX } from "./lib/media";
-import { getImageBedSettings, uploadToImageBed } from "./lib/imagebed";
+import { uploadToImageBed } from "./lib/imagebed";
 
 /** 上游模型 API 返回的业务错误：任务落库为 failed，不触发队列重投。 */
 export class ModelApiError extends Error {}
@@ -113,7 +114,8 @@ async function readReference(
 }
 
 async function processImage(env: Env, taskId: number, task: TaskRow) {
-  const settings = getImageSettings(env);
+  const config = await loadConfig(env);
+  const settings = getImageSettings(config);
   const isImg2img = task.type === "img2img";
   const referenceKeys = task.reference_image
     ? task.reference_image.split(",")
@@ -185,7 +187,12 @@ async function processImage(env: Env, taskId: number, task: TaskRow) {
   if (!image) throw new ModelApiError("生图返回为空");
 
   const { bytes, contentType } = await readResult(image);
-  const imagePath = await storeImage(env, bytes, contentType);
+  const imagePath = await storeImage(
+    env,
+    bytes,
+    contentType,
+    getImageBedSettings(config),
+  );
   const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(
@@ -216,13 +223,14 @@ async function storeImage(
   env: Env,
   bytes: Uint8Array,
   contentType: string,
+  bed: ImageBedSettings | null,
 ): Promise<string> {
-  if (getImageBedSettings(env)) {
+  if (bed) {
     // 图床偶发 530 / 源站 DNS 抖动，重试两次再决定回退——
     // 回退到 R2 的图不会丢，但会让图库链接形态不一致，能避免就避免
     for (let attempt = 1; attempt <= IMAGE_BED_ATTEMPTS; attempt++) {
       try {
-        const url = await uploadToImageBed(env, bytes, contentType);
+        const url = await uploadToImageBed(bed, bytes, contentType);
         logTask("image-bed:ok", { url, attempt });
         return url;
       } catch (error) {

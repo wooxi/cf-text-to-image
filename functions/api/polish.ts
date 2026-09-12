@@ -1,5 +1,5 @@
 import { handleError, ok, readJson, HttpError } from "../lib/http";
-import { getLlmSettings } from "../lib/env";
+import { getLlmSettings, loadConfig } from "../lib/env";
 import type { Env } from "../lib/env";
 import { requireAuth } from "../lib/auth";
 import { chatCompletion } from "../lib/llm";
@@ -13,7 +13,7 @@ export async function onRequestPost(context: {
 }): Promise<Response> {
   try {
     await requireAuth(context.env, context.request);
-    const settings = await getLlmSettings(context.env);
+    const settings = getLlmSettings(await loadConfig(context.env));
 
     const body = await readJson<{ text?: unknown }>(context.request);
     const text = typeof body.text === "string" ? body.text.trim() : "";

@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import type { Env } from "./env";
 import { HttpError } from "./http";
+import { sessionSecret } from "./settings";
 
 /**
  * 单用户鉴权：只有一个访问密码，没有用户表、没有角色、没有注册。
@@ -19,15 +20,9 @@ export interface Session {
   sub: "owner";
 }
 
-function secret(env: Env): Uint8Array {
-  const value = env.SESSION_SECRET?.trim();
-  if (!value || value.length < 16) {
-    throw new HttpError(
-      500,
-      "SESSION_SECRET 未配置或过短（建议 openssl rand -hex 32）",
-    );
-  }
-  return new TextEncoder().encode(value);
+/** 环境变量优先；没配就用（或生成）库里那条，所以它不是必填项。 */
+async function secret(env: Env): Promise<Uint8Array> {
+  return new TextEncoder().encode(await sessionSecret(env));
 }
 
 export function passwordConfigured(env: Env): boolean {
@@ -62,7 +57,7 @@ export async function createSessionToken(env: Env): Promise<string> {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
-    .sign(secret(env));
+    .sign(await secret(env));
 }
 
 export async function verifySessionToken(
@@ -70,7 +65,7 @@ export async function verifySessionToken(
   token: string,
 ): Promise<Session | null> {
   try {
-    const { payload } = await jwtVerify(token, secret(env), {
+    const { payload } = await jwtVerify(token, await secret(env), {
       algorithms: ["HS256"],
     });
     return payload.sub === "owner" ? { sub: "owner" } : null;

@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import type { ImageBedSettings } from "./env";
 import { extForContentType } from "./media";
 
 /**
@@ -16,32 +16,12 @@ import { extForContentType } from "./media";
 
 const UPLOAD_TIMEOUT_MS = 60_000;
 
-export interface ImageBedSettings {
-  endpoint: string;
-  authCode: string;
-  /** 留空则用图床自己的默认上传渠道 */
-  channel: string;
-}
-
-/** 未配置 IMAGE_BED_ENDPOINT 时返回 null，调用方回退到 R2。 */
-export function getImageBedSettings(env: Env): ImageBedSettings | null {
-  const endpoint = env.IMAGE_BED_ENDPOINT?.trim();
-  if (!endpoint) return null;
-  return {
-    endpoint: endpoint.replace(/\/+$/, ""),
-    authCode: env.IMAGE_BED_AUTH_CODE?.trim() ?? "",
-    channel: env.IMAGE_BED_CHANNEL?.trim() ?? "",
-  };
-}
-
 /** 上传一张图，返回可公开访问的绝对地址。失败抛异常，由调用方决定回退还是判失败。 */
 export async function uploadToImageBed(
-  env: Env,
+  settings: ImageBedSettings,
   bytes: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const settings = getImageBedSettings(env);
-  if (!settings) throw new Error("图床未配置");
 
   const params = new URLSearchParams({ returnFormat: "full" });
   if (settings.authCode) params.set("authCode", settings.authCode);

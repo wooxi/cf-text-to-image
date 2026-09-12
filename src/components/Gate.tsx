@@ -138,9 +138,9 @@ export default function Gate() {
           className="mt-4 text-center text-[11px] leading-relaxed"
           style={{ color: "var(--text-muted)" }}
         >
-          所有密钥与密码都在 Cloudflare 控制台的环境变量里，
+          模型接口、图床、系统提示词都在登录后的「设置」里改，
           <br />
-          系统内部不存储、也不能修改它们。
+          入口密码来自 Cloudflare 环境变量。
         </p>
       </div>
     </div>

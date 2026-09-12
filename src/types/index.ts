@@ -43,24 +43,12 @@ export interface HistoryPage {
   nextBefore: number | null;
 }
 
-export interface ConfigStatus {
-  required: readonly { key: string; scope: string }[];
-  optional: readonly { key: string; scope: string }[];
+/** 设置页读到的配置：可编辑值、密钥是否已填、还缺哪些、成品图存哪 */
+export interface SettingsPayload {
+  values: Record<string, string>;
+  secrets: Record<string, boolean>;
   missing: string[];
-  resolved: {
-    llmEndpoint: string;
-    llmModel: string;
-    imageEndpoint: string;
-    imageModel: string;
-    imageBedEndpoint: string;
-    promptSystemImage: string;
-    promptSystemPolish: string;
-  };
-  overrides: { image: boolean; polish: boolean };
-  /** 生成结果存哪里：image-bed（图床外链）或 r2（本站代理） */
   storage: "image-bed" | "r2";
-  /** 各可选变量是否已设置（只有布尔，没有值） */
-  optionalSet: Record<string, boolean>;
 }
 
 export interface PingResult {

@@ -1,6 +1,6 @@
 import type {
   AuthState,
-  ConfigStatus,
+  SettingsPayload,
   HistoryPage,
   KeywordGroup,
   PingResult,
@@ -87,8 +87,12 @@ export const api = {
     send<AuthState>("/api/auth/login", "POST", { password }),
   logout: () => send<{ authenticated: boolean }>("/api/auth/logout", "POST"),
 
-  config: () => request<ConfigStatus>("/api/config"),
-  ping: () => send<PingResult>("/api/config", "POST"),
+  settings: {
+    get: () => request<SettingsPayload>("/api/settings"),
+    save: (entries: Record<string, string | null>) =>
+      send<{ saved: number }>("/api/settings", "PUT", entries),
+    ping: () => send<PingResult>("/api/settings", "POST"),
+  },
 
   generatePrompt: (keywords: { name: string }[]) =>
     send<{ prompt: string }>("/api/generate-prompt", "POST", { keywords }),

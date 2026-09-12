@@ -11,6 +11,37 @@ import type { Env } from "../functions/lib/env";
 
 const SECRET = "test-session-secret-at-least-16-chars";
 
+/** 极简 D1 替身：只认 settings 表用到的那几条语句 */
+function makeDbStub() {
+  const rows = new Map<string, string>();
+  const exec = (sql: string, args: unknown[]) => ({
+    async run() {
+      // 会话密钥那条 INSERT 把键写成字面量了，其余按 ? 占位符取
+      const literal = sql.includes("'session_secret'");
+      const key = literal ? "session_secret" : String(args[0]);
+      const value = literal ? String(args[0]) : String(args[1]);
+      if (sql.includes("INSERT INTO settings") && !rows.has(key)) {
+        rows.set(key, value);
+      }
+      return {};
+    },
+    async first() {
+      const value = rows.get(String(args[0]));
+      return value === undefined ? null : { value };
+    },
+    async all() {
+      return { results: [...rows].map(([key, value]) => ({ key, value })) };
+    },
+  });
+  return {
+    rows,
+    prepare: (sql: string) => ({
+      ...exec(sql, []),
+      bind: (...args: unknown[]) => exec(sql, args),
+    }),
+  };
+}
+
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     SESSION_SECRET: SECRET,
@@ -85,13 +116,19 @@ describe("会话令牌", () => {
     ).resolves.toBeNull();
   });
 
-  it("SESSION_SECRET 缺失或过短时拒绝签发", async () => {
-    await expect(
-      createSessionToken(makeEnv({ SESSION_SECRET: "" })),
-    ).rejects.toThrow(/SESSION_SECRET/);
-    await expect(
-      createSessionToken(makeEnv({ SESSION_SECRET: "short" })),
-    ).rejects.toThrow(/SESSION_SECRET/);
+  it("没配 SESSION_SECRET 时自动生成并落库，签发的会话照样可校验", async () => {
+    const db = makeDbStub();
+    const env = makeEnv({
+      SESSION_SECRET: "",
+      DB: db as unknown as Env["DB"],
+    });
+
+    const token = await createSessionToken(env);
+    // 第二次调用要复用库里那份，否则刚签发的会话立刻就失效了
+    await expect(verifySessionToken(env, token)).resolves.toEqual({
+      sub: "owner",
+    });
+    expect(db.rows.get("session_secret")).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("Cookie 带齐安全属性，登出清空 Max-Age", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ConfigStatus, ImageRecord, KeywordGroup } from "@/types";
+import type { ImageRecord, KeywordGroup, SettingsPayload } from "@/types";
 import { api, ApiError } from "@/lib/api";
 import { useConfirm } from "../ConfirmDialog";
 import { useToast } from "../Toast";
@@ -11,137 +11,168 @@ interface Props {
   reloadGroups: () => Promise<void>;
 }
 
-type Tab = "status" | "keywords" | "history";
+type Tab = "config" | "keywords" | "history";
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "status", label: "运行状态" },
+  { key: "config", label: "配置" },
   { key: "keywords", label: "关键词" },
   { key: "history", label: "生成历史" },
 ];
 
-/** 可选变量在「已配置」之外的第二种状态需要一句人话解释 */
-const OPTIONAL_NOTES: Record<string, string> = {
-  IMAGE_BED_ENDPOINT: "成品图改传图床，库里存外链",
-  IMAGE_BED_AUTH_CODE: "与图床的上传认证码一致",
-  IMAGE_BED_CHANNEL: "cfr2 走 R2 无损；telegram 等渠道会压缩",
-};
-
-function Panel({ children }: { children: React.ReactNode }) {
-  return (
-    <section
-      className="rounded-xl border p-4"
-      style={{
-        borderColor: "var(--border)",
-        background: "var(--bg-secondary)",
-      }}
-    >
-      {children}
-    </section>
-  );
-}
-
-/** 卡片外壳：标题栏 + 内容区，替代原来「一个变量一张大卡」的写法。 */
 function Card({
   title,
-  extra,
+  hint,
   children,
+  onSave,
+  saving,
 }: {
   title: string;
-  extra?: React.ReactNode;
+  hint?: string;
   children: React.ReactNode;
+  onSave?: () => void;
+  saving?: boolean;
 }) {
   return (
     <section
       className="overflow-hidden rounded-xl border"
-      style={{
-        borderColor: "var(--border)",
-        background: "var(--bg-secondary)",
-      }}
+      style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
     >
       <div
         className="flex items-center justify-between gap-3 border-b px-4 py-2.5"
         style={{ borderColor: "var(--border)" }}
       >
-        <h3
-          className="text-[13px] font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {title}
-        </h3>
-        {extra}
+        <div className="min-w-0">
+          <h3
+            className="text-[13px] font-semibold"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {title}
+          </h3>
+          {hint && (
+            <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+              {hint}
+            </p>
+          )}
+        </div>
+        {onSave && (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving}
+            className="shrink-0 rounded-lg px-3.5 py-1.5 text-xs font-medium transition-base disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "#fff" }}
+          >
+            {saving ? "保存中…" : "保存"}
+          </button>
+        )}
       </div>
-      <div>{children}</div>
+      <div className="space-y-3 p-4">{children}</div>
     </section>
   );
 }
 
-/** 变量行：等宽变量名 + 说明 + 右侧状态点。一行 40px，不再是整张卡。 */
-function EnvRow({
-  name,
-  note,
-  ok,
-  optional,
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  filled,
+  type = "text",
 }: {
-  name: string;
-  note: string;
-  ok: boolean;
-  optional?: boolean;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  /** 密钥字段：库里已有值，留空即不修改 */
+  filled?: boolean;
+  type?: "text" | "password";
 }) {
-  const color = ok
-    ? "var(--success)"
-    : optional
-      ? "var(--text-muted)"
-      : "var(--danger)";
   return (
-    <div
-      className="flex items-center justify-between gap-3 px-4 py-2 [&+&]:border-t"
-      style={{ borderColor: "var(--border)" }}
-    >
-      <div className="flex min-w-0 items-baseline gap-2.5">
-        <code
-          className="shrink-0 text-xs font-mono"
-          style={{ color: "var(--text-primary)" }}
-        >
-          {name}
-        </code>
-        <span
-          className="truncate text-[10px]"
-          style={{ color: "var(--text-muted)" }}
-          title={note}
-        >
-          {note}
-        </span>
-      </div>
+    <label className="block">
       <span
-        className="flex shrink-0 items-center gap-1.5 text-[11px]"
-        style={{ color }}
+        className="mb-1 flex items-center gap-2 text-[11px] font-medium"
+        style={{ color: "var(--text-secondary)" }}
       >
-        <span
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ background: color }}
-        />
-        {ok ? "已配置" : optional ? "未配置" : "缺失"}
+        {label}
+        {filled && (
+          <span
+            className="rounded-full px-1.5 py-px text-[10px] font-normal"
+            style={{ background: "var(--success-bg)", color: "var(--success)" }}
+          >
+            已设置
+          </span>
+        )}
       </span>
-    </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        className="w-full rounded-lg border px-3 py-2 font-mono text-xs outline-none transition-base focus:border-[var(--accent)]"
+        style={{
+          borderColor: "var(--border)",
+          background: "var(--bg-tertiary)",
+          color: "var(--text-primary)",
+        }}
+      />
+    </label>
   );
 }
 
-function StatusTab() {
+/** 配置：模型接口、图床、提示词，都是登录后在这里改，存在 D1。 */
+function ConfigTab() {
   const toast = useToast();
-  const [status, setStatus] = useState<ConfigStatus | null>(null);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [secrets, setSecrets] = useState<Record<string, boolean>>({});
+  const [missing, setMissing] = useState<string[]>([]);
+  const [saving, setSaving] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
 
+  const load = useCallback(async () => {
+    try {
+      const data = await api.settings.get();
+      setForm(data.values);
+      setSecrets(data.secrets);
+      setMissing(data.missing);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "读取配置失败");
+    }
+  }, [toast]);
+
   useEffect(() => {
-    api
-      .config()
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, []);
+    void load();
+  }, [load]);
+
+  const set = (key: string) => (value: string) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  /** 密钥留空表示不修改（传 null），其余字段原样提交 */
+  const save = async (card: string, keys: string[], secretKeys: string[]) => {
+    setSaving(card);
+    try {
+      const payload: Record<string, string | null> = {};
+      for (const key of keys) {
+        const value = (form[key] ?? "").trim();
+        payload[key] = secretKeys.includes(key)
+          ? value || null
+          : value;
+      }
+      await api.settings.save(payload);
+      toast.success("已保存");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "保存失败");
+    } finally {
+      setSaving(null);
+    }
+  };
 
   const ping = async () => {
     setPinging(true);
     try {
-      const result = await api.ping();
+      const result = await api.settings.ping();
       if (result.reachable)
         toast.success(`端点可达，返回 ${result.models?.length ?? 0} 个模型`);
       else toast.error(`端点返回 ${result.status}`);
@@ -152,512 +183,503 @@ function StatusTab() {
     }
   };
 
-  if (!status) {
-    return (
-      <div className="space-y-3">
-        {[0, 1].map((key) => (
-          <div
-            key={key}
-            className="animate-skeleton h-32 rounded-xl"
-            style={{ border: "1px solid var(--border)" }}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  const missing = new Set(status.missing);
-  const healthy = status.missing.length === 0;
-  const optionalSet = status.optionalSet ?? {};
-
-  const summary: [string, string][] = [
-    ["LLM 模型", status.resolved.llmModel || "—"],
-    ["图像模型", status.resolved.imageModel || "—"],
-    [
-      "成品图存放",
-      status.storage === "image-bed"
-        ? `图床 ${status.resolved.imageBedEndpoint}`.trim()
-        : "本站 R2",
-    ],
-    [
-      "系统提示词",
-      status.overrides.image ? "已自定义" : "内置默认",
-    ],
-  ];
-
-  const prompts: [string, string, boolean][] = [
-    [
-      "PROMPT_SYSTEM_IMAGE",
-      status.resolved.promptSystemImage,
-      status.overrides.image,
-    ],
-    [
-      "PROMPT_SYSTEM_POLISH",
-      status.resolved.promptSystemPolish,
-      status.overrides.polish,
-    ],
-  ];
-
   return (
     <div className="space-y-4">
-      {/* 总览：一眼看到服务是否健康 + 关键参数 */}
-      <section
-        className="rounded-xl border p-4"
-        style={{
-          borderColor: healthy ? "var(--border)" : "var(--danger)",
-          background: "var(--bg-secondary)",
-        }}
+      {missing.length > 0 && (
+        <p
+          className="rounded-lg border px-3.5 py-2.5 text-xs leading-relaxed"
+          style={{
+            borderColor: "var(--danger)",
+            background: "var(--danger-bg)",
+            color: "var(--danger)",
+          }}
+        >
+          还差 {missing.join("、")} 没填，填完才能出图。
+        </p>
+      )}
+
+      <Card
+        title="LLM 接口"
+        hint="生成提示词 / 润色用，OpenAI 兼容"
+        onSave={() =>
+          void save(
+            "llm",
+            ["llm_endpoint", "llm_api_key", "llm_model"],
+            ["llm_api_key"],
+          )
+        }
+        saving={saving === "llm"}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-              style={{
-                background: healthy ? "var(--success-bg)" : "var(--danger-bg)",
-                color: healthy ? "var(--success)" : "var(--danger)",
-              }}
-              aria-hidden
-            >
-              {healthy ? "✓" : "!"}
-            </span>
-            <div className="min-w-0">
-              <p
-                className="text-sm font-semibold"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {healthy ? "服务配置完整" : `缺少 ${status.missing.length} 项配置`}
-              </p>
-              <p
-                className="mt-0.5 text-[11px] leading-relaxed"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {healthy
-                  ? `${status.required.length} 个必需变量已全部就绪，可以正常出图`
-                  : `缺少 ${status.missing.join("、")}，服务无法正常工作`}
-              </p>
-            </div>
-          </div>
+        <Field
+          label="接口地址"
+          value={form.llm_endpoint ?? ""}
+          onChange={set("llm_endpoint")}
+          placeholder="https://api.openai.com/v1"
+        />
+        <Field
+          label="API Key"
+          type="password"
+          value={form.llm_api_key ?? ""}
+          onChange={set("llm_api_key")}
+          filled={secrets.llm_api_key}
+          placeholder={
+            secrets.llm_api_key ? "留空则不修改" : "sk-…"
+          }
+        />
+        <Field
+          label="模型"
+          value={form.llm_model ?? ""}
+          onChange={set("llm_model")}
+          placeholder="gpt-4o"
+        />
+      </Card>
+
+      <Card
+        title="图像接口"
+        hint="出图用，OpenAI 兼容"
+        onSave={() =>
+          void save(
+            "image",
+            ["image_endpoint", "image_api_key", "image_model"],
+            ["image_api_key"],
+          )
+        }
+        saving={saving === "image"}
+      >
+        <Field
+          label="接口地址"
+          value={form.image_endpoint ?? ""}
+          onChange={set("image_endpoint")}
+          placeholder="https://api.openai.com/v1"
+        />
+        <Field
+          label="API Key"
+          type="password"
+          value={form.image_api_key ?? ""}
+          onChange={set("image_api_key")}
+          filled={secrets.image_api_key}
+          placeholder={secrets.image_api_key ? "留空则不修改" : "sk-…"}
+        />
+        <Field
+          label="模型"
+          value={form.image_model ?? ""}
+          onChange={set("image_model")}
+          placeholder="gpt-image-1"
+        />
+      </Card>
+
+      <Card
+        title="图床"
+        hint="可留空：留空则成品图存 R2，由本站鉴权代理读取"
+        onSave={() =>
+          void save(
+            "bed",
+            [
+              "image_bed_endpoint",
+              "image_bed_auth_code",
+              "image_bed_channel",
+            ],
+            ["image_bed_auth_code"],
+          )
+        }
+        saving={saving === "bed"}
+      >
+        <Field
+          label="图床地址"
+          value={form.image_bed_endpoint ?? ""}
+          onChange={set("image_bed_endpoint")}
+          placeholder="https://imgbed.example.com"
+        />
+        <Field
+          label="上传认证码"
+          type="password"
+          value={form.image_bed_auth_code ?? ""}
+          onChange={set("image_bed_auth_code")}
+          filled={secrets.image_bed_auth_code}
+          placeholder={secrets.image_bed_auth_code ? "留空则不修改" : "图床后台的 authCode"}
+        />
+        <Field
+          label="存储渠道"
+          value={form.image_bed_channel ?? ""}
+          onChange={set("image_bed_channel")}
+          placeholder="cfr2（原图无损；telegram 等渠道会压缩）"
+        />
+      </Card>
+
+      <Card
+        title="系统提示词"
+        hint="留空则用内置那份；也可以用「测试连通性」顺带确认密钥有效"
+        onSave={() =>
+          void save(
+            "prompt",
+            ["prompt_system_image", "prompt_system_polish"],
+            [],
+          )
+        }
+        saving={saving === "prompt"}
+      >
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => void ping()}
-            disabled={pinging || !healthy}
-            className="shrink-0 rounded-lg border px-3.5 py-1.5 text-xs font-medium transition-base hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40"
-            style={{
-              borderColor: "var(--border)",
-              color: "var(--text-secondary)",
-            }}
+            disabled={pinging}
+            className="rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-base hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             {pinging ? "检测中…" : "测试连通性"}
           </button>
         </div>
-
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-          {summary.map(([label, value]) => (
-            <div key={label} className="min-w-0">
-              <dt
-                className="text-[10px] uppercase tracking-wider"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {label}
-              </dt>
-              <dd
-                className="mt-0.5 truncate font-mono text-xs"
-                style={{ color: "var(--text-secondary)" }}
-                title={value}
-              >
-                {value || "—"}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <Card
-        title="环境变量"
-        extra={
-          <span
-            className="text-[11px] tabular-nums"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {status.required.length - status.missing.length}/
-            {status.required.length} 已配置
-          </span>
-        }
-      >
-        {status.required.map(({ key, scope }) => (
-          <EnvRow
-            key={key}
-            name={key}
-            note={`${scope}${scope === "Worker" ? " 环境变量" : ""}`}
-            ok={!missing.has(key)}
-          />
-        ))}
-      </Card>
-
-      <Card
-        title="可选变量"
-        extra={
-          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            不配也能跑，成品图回退存 R2
-          </span>
-        }
-      >
-        {status.optional.map(({ key }) => (
-          <EnvRow
-            key={key}
-            name={key}
-            note={OPTIONAL_NOTES[key] ?? ""}
-            ok={Boolean(optionalSet[key])}
-            optional
-          />
-        ))}
-      </Card>
-
-      <Card title="系统提示词">
-        {prompts.map(([key, value, overridden]) => (
-          <details
-            key={key}
-            className="group [&+&]:border-t"
-            style={{ borderColor: "var(--border)" }}
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 transition-base hover:bg-[var(--bg-tertiary)]">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span
-                  className="text-[10px] transition-transform group-open:rotate-90"
-                  style={{ color: "var(--text-muted)" }}
-                  aria-hidden
-                >
-                  ▶
-                </span>
-                <code
-                  className="shrink-0 text-xs font-mono"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {key}
-                </code>
-                <span
-                  className="rounded-full px-2 py-0.5 text-[10px]"
-                  style={{
-                    background: overridden
-                      ? "var(--accent-light)"
-                      : "var(--bg-tertiary)",
-                    color: overridden ? "var(--accent)" : "var(--text-muted)",
-                  }}
-                >
-                  {overridden ? "已自定义" : "内置默认"}
-                </span>
-              </div>
-              <span
-                className="shrink-0 text-[11px] tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {value.length} 字
-              </span>
-            </summary>
-            <div
-              className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-4 pb-4 text-[11px] leading-relaxed"
+        {(
+          [
+            ["prompt_system_image", "出图提示词"],
+            ["prompt_system_polish", "润色提示词"],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key} className="block">
+            <span
+              className="mb-1 flex items-center justify-between text-[11px] font-medium"
               style={{ color: "var(--text-secondary)" }}
             >
-              {value}
-            </div>
-          </details>
+              {label}
+              <span className="tabular-nums" style={{ color: "var(--text-muted)" }}>
+                {(form[key] ?? "").length} 字
+              </span>
+            </span>
+            <textarea
+              value={form[key] ?? ""}
+              onChange={(e) => set(key)(e.target.value)}
+              rows={6}
+              spellCheck={false}
+              className="w-full resize-y rounded-lg border px-3 py-2 text-xs leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg-tertiary)",
+                color: "var(--text-primary)",
+              }}
+            />
+          </label>
         ))}
       </Card>
-
-      <p className="px-1 text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-        变量都在 Cloudflare 控制台改：Workers &amp; Pages → cf-text-to-image → Settings →
-        Variables and Secrets。改完重新部署一次生效；密钥值永远不会回传到这里。
-      </p>
     </div>
   );
 }
 
+/** 关键词：左边选分组，右边管这个词表——加词、改名、排序、删除都在一处。 */
 function KeywordsTab({ groups, reloadGroups }: Props) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [drafts, setDrafts] = useState<Record<number, string>>({});
-  const [draftGroup, setDraftGroup] = useState({
-    name: "",
-    slug: "",
-    keywords: "",
-  });
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [groupDraft, setGroupDraft] = useState({ name: "", slug: "" });
 
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true);
-    try {
-      await action();
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "操作失败");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const active = groups.find((g) => g.id === activeId) ?? groups[0] ?? null;
 
-  const addKeyword = (group: KeywordGroup) => {
-    const name = (drafts[group.id] ?? "").trim();
-    if (!name) return;
-    void run(async () => {
-      await api.keywords.create({ groupId: group.id, name });
-      setDrafts((prev) => ({ ...prev, [group.id]: "" }));
-      await reloadGroups();
-    });
-  };
-
-  const move = (group: KeywordGroup, index: number, delta: number) => {
-    const target = index + delta;
-    if (target < 0 || target >= group.keywords.length) return;
-    const ids = group.keywords.map((keyword) => keyword.id);
-    [ids[index], ids[target]] = [ids[target], ids[index]];
-    void run(async () => {
-      await api.keywords.reorder(group.id, ids);
-      await reloadGroups();
-    });
-  };
-
-  const removeGroup = (group: KeywordGroup) =>
-    void run(async () => {
-      const confirmed = await confirm({
-        title: `删除分组「${group.name}」？`,
-        message: `该分组下的 ${group.keywords.length} 个关键词会一起删除，不可撤销。`,
-        confirmLabel: "删除",
-        danger: true,
-      });
-      if (!confirmed) return;
-      await api.keywords.removeGroup(group.id);
-      await reloadGroups();
-    });
-
-  const createGroup = () =>
-    void run(async () => {
-      const name = draftGroup.name.trim();
-      const slug = draftGroup.slug.trim();
-      if (!name || !slug) {
-        toast.error("请填写分组名称与标识");
-        return;
+  const run = useCallback(
+    async (fn: () => Promise<unknown>, done?: string) => {
+      setBusy(true);
+      try {
+        await fn();
+        if (done) toast.success(done);
+        await reloadGroups();
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "操作失败");
+      } finally {
+        setBusy(false);
       }
-      await api.keywords.create({
-        name,
-        slug,
-        keywords: draftGroup.keywords
-          .split(/[\n,，、]/)
-          .map((part) => part.trim())
-          .filter(Boolean),
-      });
-      setDraftGroup({ name: "", slug: "", keywords: "" });
-      await reloadGroups();
-      toast.success("分组已创建");
-    });
+    },
+    [reloadGroups, toast],
+  );
+
+  const addKeywords = async () => {
+    if (!active) return;
+    const names = draft
+      .split(/[\n,，、]/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (!names.length) return;
+    await run(async () => {
+      for (const name of names) {
+        await api.keywords.create({ groupId: active.id, name });
+      }
+      setDraft("");
+    }, `加了 ${names.length} 个词`);
+  };
+
+  const move = async (keywordId: number, delta: number) => {
+    if (!active) return;
+    const ids = active.keywords.map((k) => k.id);
+    const from = ids.indexOf(keywordId);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    await run(() => api.keywords.reorder(active.id, ids));
+  };
+
+  const filtered = active
+    ? query.trim()
+      ? active.keywords.filter((k) =>
+          k.name.toLowerCase().includes(query.trim().toLowerCase()),
+        )
+      : active.keywords
+    : [];
 
   return (
-    <div className="space-y-5">
-      <Panel>
-        <h3
-          className="mb-3 text-sm font-semibold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          新建分组
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(
-            [
-              ["name", "分组名称，如「道具」", false],
-              ["slug", "英文标识，如 props", true],
-            ] as const
-          ).map(([field, placeholder, mono]) => (
+    <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+      <aside className="space-y-1">
+        {groups.map((group) => {
+          const on = active?.id === group.id;
+          return (
+            <button
+              key={group.id}
+              type="button"
+              onClick={() => setActiveId(group.id)}
+              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition-base"
+              style={{
+                background: on ? "var(--accent-light)" : "transparent",
+                color: on ? "var(--accent)" : "var(--text-secondary)",
+              }}
+            >
+              <span className="truncate">{group.name}</span>
+              <span className="shrink-0 text-[10px] tabular-nums opacity-70">
+                {group.keywords.length}
+              </span>
+            </button>
+          );
+        })}
+
+        {adding ? (
+          <div
+            className="space-y-1.5 rounded-lg border p-2.5"
+            style={{ borderColor: "var(--border)" }}
+          >
             <input
-              key={field}
-              value={draftGroup[field]}
-              onChange={(event) =>
-                setDraftGroup((prev) => ({
-                  ...prev,
-                  [field]: event.target.value,
-                }))
+              value={groupDraft.name}
+              onChange={(e) =>
+                setGroupDraft((prev) => ({ ...prev, name: e.target.value }))
               }
-              placeholder={placeholder}
-              className={`rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] ${mono ? "font-mono" : ""}`}
+              placeholder="分组名"
+              className="w-full rounded-md border px-2 py-1.5 text-xs outline-none focus:border-[var(--accent)]"
               style={{
                 borderColor: "var(--border)",
                 background: "var(--bg-tertiary)",
                 color: "var(--text-primary)",
               }}
             />
-          ))}
-        </div>
-        <textarea
-          value={draftGroup.keywords}
-          onChange={(event) =>
-            setDraftGroup((prev) => ({ ...prev, keywords: event.target.value }))
-          }
-          rows={3}
-          placeholder="初始关键词，一行一个（也可用逗号分隔）"
-          className="mt-3 w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-          style={{
-            borderColor: "var(--border)",
-            background: "var(--bg-tertiary)",
-            color: "var(--text-primary)",
-          }}
-        />
-        <button
-          type="button"
-          onClick={createGroup}
-          disabled={busy}
-          className="mt-3 rounded-lg px-5 py-2 text-xs font-semibold text-white disabled:opacity-50"
-          style={{ background: "var(--accent)" }}
-        >
-          创建
-        </button>
-      </Panel>
-
-      {groups.map((group) => (
-        <Panel key={group.id}>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="flex items-baseline gap-2">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {group.name}
-              </h3>
-              <code
-                className="text-[10px] font-mono"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {group.slug}
-              </code>
-              {group.isParameterGroup && (
-                <span
-                  className="rounded-full px-2 py-0.5 text-[10px]"
-                  style={{
-                    background: "var(--accent-light)",
-                    color: "var(--accent)",
-                  }}
-                >
-                  输出参数
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              <span
-                className="text-xs tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {group.keywords.length} 个
-              </span>
+            <input
+              value={groupDraft.slug}
+              onChange={(e) =>
+                setGroupDraft((prev) => ({ ...prev, slug: e.target.value }))
+              }
+              placeholder="英文标识"
+              className="w-full rounded-md border px-2 py-1.5 font-mono text-xs outline-none focus:border-[var(--accent)]"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg-tertiary)",
+                color: "var(--text-primary)",
+              }}
+            />
+            <div className="flex gap-1.5">
               <button
                 type="button"
-                onClick={() => removeGroup(group)}
-                className="text-xs"
-                style={{ color: "var(--danger)" }}
+                disabled={busy || !groupDraft.name.trim() || !groupDraft.slug.trim()}
+                onClick={() =>
+                  void run(async () => {
+                    await api.keywords.create({
+                      name: groupDraft.name.trim(),
+                      slug: groupDraft.slug.trim(),
+                      keywords: [],
+                    });
+                    setGroupDraft({ name: "", slug: "" });
+                    setAdding(false);
+                  }, "分组已创建")
+                }
+                className="flex-1 rounded-md py-1.5 text-[11px] font-medium disabled:opacity-40"
+                style={{ background: "var(--accent)", color: "#fff" }}
               >
-                删除分组
+                创建
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdding(false)}
+                className="rounded-md border px-2.5 py-1.5 text-[11px]"
+                style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+              >
+                取消
               </button>
             </div>
           </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="w-full rounded-lg border border-dashed px-3 py-2 text-[12px] transition-base hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            + 新建分组
+          </button>
+        )}
+      </aside>
 
-          <ul className="space-y-1.5">
-            {group.keywords.map((keyword, index) => (
-              <li
-                key={keyword.id}
-                className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5"
+      {active ? (
+        <section
+          className="overflow-hidden rounded-xl border"
+          style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
+        >
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div className="flex min-w-0 items-baseline gap-2">
+              <h3
+                className="text-[13px] font-semibold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {active.name}
+              </h3>
+              <code className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                {active.slug}
+              </code>
+              <span
+                className="text-[11px] tabular-nums"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {active.keywords.length} 个
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `删除分组「${active.name}」？`,
+                    message: `组内 ${active.keywords.length} 个关键词会一并删除。`,
+                    confirmLabel: "删除",
+                    danger: true,
+                  })
+                ) {
+                  await run(() => api.keywords.removeGroup(active.id), "分组已删除");
+                  setActiveId(null);
+                }
+              }}
+              className="text-[11px] transition-base hover:opacity-80"
+              style={{ color: "var(--danger)" }}
+            >
+              删除分组
+            </button>
+          </div>
+
+          <div className="space-y-3 p-4">
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索本组关键词…"
+                className="min-w-[8rem] flex-1 rounded-lg border px-3 py-2 text-xs outline-none focus:border-[var(--accent)]"
                 style={{
                   borderColor: "var(--border)",
                   background: "var(--bg-tertiary)",
+                  color: "var(--text-primary)",
                 }}
-              >
-                <span
-                  className="w-6 shrink-0 text-[10px] tabular-nums"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {index + 1}
-                </span>
-                <span
-                  className="min-w-0 flex-1 truncate text-xs"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  {keyword.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => move(group, index, -1)}
-                  disabled={index === 0 || busy}
-                  aria-label={`上移 ${keyword.name}`}
-                  className="px-1 text-xs disabled:opacity-20"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(group, index, 1)}
-                  disabled={index === group.keywords.length - 1 || busy}
-                  aria-label={`下移 ${keyword.name}`}
-                  className="px-1 text-xs disabled:opacity-20"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void run(async () => {
-                      await api.keywords.remove(keyword.id);
-                      await reloadGroups();
-                    })
-                  }
-                  aria-label={`删除 ${keyword.name}`}
-                  className="px-1 text-xs"
-                  style={{ color: "var(--danger)" }}
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-            {group.keywords.length === 0 && (
-              <li
-                className="py-2 text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
-                暂无关键词
-              </li>
-            )}
-          </ul>
+              />
+            </div>
 
-          <div className="mt-3 flex gap-2">
-            <input
-              value={drafts[group.id] ?? ""}
-              onChange={(event) =>
-                setDrafts((prev) => ({
-                  ...prev,
-                  [group.id]: event.target.value,
-                }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addKeyword(group);
-                }
-              }}
-              placeholder="添加关键词…"
-              className="flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-              style={{
-                borderColor: "var(--border)",
-                background: "var(--bg-tertiary)",
-                color: "var(--text-primary)",
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => addKeyword(group)}
-              disabled={busy}
-              className="rounded-lg px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--accent)" }}
-            >
-              添加
-            </button>
+            <div className="flex gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addKeywords();
+                  }
+                }}
+                placeholder="输入关键词，回车添加（支持逗号 / 换行一次加多个）"
+                className="flex-1 rounded-lg border px-3 py-2 text-xs outline-none focus:border-[var(--accent)]"
+                style={{
+                  borderColor: "var(--border)",
+                  background: "var(--bg-tertiary)",
+                  color: "var(--text-primary)",
+                }}
+              />
+              <button
+                type="button"
+                disabled={busy || !draft.trim()}
+                onClick={() => void addKeywords()}
+                className="rounded-lg px-4 py-2 text-xs font-medium disabled:opacity-40"
+                style={{ background: "var(--accent)", color: "#fff" }}
+              >
+                添加
+              </button>
+            </div>
+
+            <div className="grid gap-1 sm:grid-cols-2">
+              {filtered.map((keyword) => {
+                const index = active.keywords.indexOf(keyword);
+                return (
+                  <div
+                    key={keyword.id}
+                    className="group flex items-center gap-1 rounded-lg border px-2.5 py-1.5"
+                    style={{
+                      borderColor: "var(--border)",
+                      background: "var(--bg-tertiary)",
+                    }}
+                  >
+                    <span className="flex-1 truncate text-xs">
+                      {keyword.name}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy || index === 0}
+                      onClick={() => void move(keyword.id, -1)}
+                      title="上移"
+                      className="rounded px-1 text-[11px] opacity-40 transition-base hover:opacity-100 disabled:opacity-10"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || index === active.keywords.length - 1}
+                      onClick={() => void move(keyword.id, 1)}
+                      title="下移"
+                      className="rounded px-1 text-[11px] opacity-40 transition-base hover:opacity-100 disabled:opacity-10"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void run(() => api.keywords.remove(keyword.id))}
+                      title="删除"
+                      className="rounded px-1 text-[11px] opacity-40 transition-base hover:opacity-100"
+                      style={{ color: "var(--danger)" }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              {filtered.length === 0 && (
+                <p
+                  className="col-span-full py-6 text-center text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {query.trim() ? "没有匹配的关键词" : "这个词表还是空的，上面输入框加几个"}
+                </p>
+              )}
+            </div>
           </div>
-        </Panel>
-      ))}
+        </section>
+      ) : (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          左边还没有分组
+        </p>
+      )}
     </div>
   );
 }
@@ -826,7 +848,7 @@ function HistoryTab() {
 }
 
 export default function SettingsPanel(props: Props) {
-  const [tab, setTab] = useState<Tab>("status");
+  const [tab, setTab] = useState<Tab>("config");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -861,7 +883,7 @@ export default function SettingsPanel(props: Props) {
 
       <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
         <div className="mx-auto w-full max-w-4xl">
-        {tab === "status" && <StatusTab />}
+        {tab === "config" && <ConfigTab />}
         {tab === "keywords" && <KeywordsTab {...props} />}
         {tab === "history" && <HistoryTab />}
         </div>
