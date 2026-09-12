@@ -135,9 +135,12 @@ export default function CreatePanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      {/* 左栏：选择区 */}
-      <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
-        <div className="mx-auto w-full max-w-4xl space-y-5">
+      {/* 左栏：顶部固定模式切换，下面才是可滚动的选词区 */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          className="shrink-0 border-b px-4 py-3 lg:px-6"
+          style={{ borderColor: "var(--border)" }}
+        >
           <div
             className="inline-flex gap-1 rounded-lg p-0.5"
             style={{ background: "var(--bg-tertiary)" }}
@@ -162,7 +165,10 @@ export default function CreatePanel({
               </button>
             ))}
           </div>
+        </div>
 
+        <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
+          <div className="mx-auto w-full max-w-4xl space-y-5">
           {type === "img2img" && (
             <section
               className="rounded-xl border p-4"
@@ -199,6 +205,7 @@ export default function CreatePanel({
             }}
             onClearAll={() => setSelected([])}
           />
+          </div>
         </div>
       </div>
 
@@ -210,7 +217,7 @@ export default function CreatePanel({
           background: "var(--bg-secondary)",
         }}
       >
-        <div className="flex h-full flex-col gap-3 lg:justify-between">
+        <div className="flex h-full flex-col gap-3">
           <div className="flex items-center justify-between">
             <h2
               className="text-xs font-semibold uppercase tracking-[0.14em]"
@@ -235,7 +242,7 @@ export default function CreatePanel({
                 ? "描述要保留什么、改动什么，例如：把外套换成红色，背景改为雨天街景…"
                 : "选好关键词后点「生成提示词」获取底稿，也可以直接手写画面描述…"
             }
-            className="w-full resize-none rounded-lg border px-3.5 py-3 text-sm leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
+            className="max-h-[280px] w-full resize-y rounded-lg border px-3.5 py-3 text-sm leading-relaxed outline-none transition-base focus:border-[var(--accent)]"
             style={{
               borderColor: "var(--border)",
               background: "var(--bg-tertiary)",
@@ -243,7 +250,56 @@ export default function CreatePanel({
             }}
           />
 
-          <div className="flex items-center gap-2 text-[11px]">
+          <div
+            className="flex min-h-[88px] flex-1 flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2.5"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--bg-tertiary)",
+            }}
+          >
+            <div className="flex shrink-0 items-baseline justify-between">
+              <span
+                className="text-[10px] uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
+                已选关键词
+              </span>
+              <span
+                className="text-[10px] tabular-nums"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {selected.length > 0 ? `${selected.length} 个 · 点一下移除` : ""}
+              </span>
+            </div>
+            <div className="scrollbar-thin flex flex-1 flex-wrap content-start gap-1.5 overflow-y-auto">
+              {selected.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() =>
+                    setSelected((prev) => prev.filter((item) => item !== name))
+                  }
+                  className="h-fit rounded-md px-2 py-0.5 text-[11px] transition-base hover:opacity-70"
+                  style={{
+                    background: "var(--accent-light)",
+                    color: "var(--accent)",
+                  }}
+                >
+                  {name}
+                </button>
+              ))}
+              {selected.length === 0 && (
+                <span
+                  className="text-[11px] leading-relaxed"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  左边点几个词，这里会列出来；出图时用的就是它们加上你写的描述。
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 text-[11px]">
             <span
               className="badge"
               style={{
@@ -267,7 +323,7 @@ export default function CreatePanel({
             ))}
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex shrink-0 flex-col gap-2">
             <button
               type="button"
               onClick={() => void submit()}

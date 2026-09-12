@@ -61,8 +61,12 @@ export default function KeywordSelector({
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-4">
+      {/* 吸顶：滚动浏览关键词时搜索/已选状态始终可见 */}
+      <div
+        className="sticky top-0 z-10 -mt-1 flex flex-wrap items-center gap-2 pb-2 pt-1 backdrop-blur-sm"
+        style={{ background: "var(--bg-primary)" }}
+      >
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -107,6 +111,8 @@ export default function KeywordSelector({
         )}
       </div>
 
+      {/* 宽屏走多列：7 个分组竖排要滚很久，分列后一屏基本能看全 */}
+      <div className="columns-1 gap-x-7 lg:columns-2 2xl:columns-3">
       {visibleGroups.map(({ group, keywords }) => {
         const selectedInGroup = group.keywords.filter((kw) =>
           selected.includes(kw.name),
@@ -114,7 +120,7 @@ export default function KeywordSelector({
         if (keywords.length === 0 && (normalized || selectedOnly)) return null;
 
         return (
-          <section key={group.id}>
+          <section key={group.id} className="mb-5 break-inside-avoid">
             <div
               className="mb-2.5 flex items-baseline justify-between gap-3 border-b pb-2"
               style={{ borderColor: "var(--border)" }}
@@ -166,7 +172,7 @@ export default function KeywordSelector({
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2.5">
+            <div className="flex flex-wrap gap-2">
               {keywords.map((kw) => (
                 <button
                   key={kw.id}
@@ -191,6 +197,7 @@ export default function KeywordSelector({
           </section>
         );
       })}
+      </div>
     </div>
   );
 }

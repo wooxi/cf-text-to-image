@@ -210,6 +210,7 @@ function ConfigTab() {
         }
         saving={saving === "llm"}
       >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Field
           label="接口地址"
           value={form.llm_endpoint ?? ""}
@@ -232,6 +233,7 @@ function ConfigTab() {
           onChange={set("llm_model")}
           placeholder="gpt-4o"
         />
+        </div>
       </Card>
 
       <Card
@@ -246,6 +248,7 @@ function ConfigTab() {
         }
         saving={saving === "image"}
       >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Field
           label="接口地址"
           value={form.image_endpoint ?? ""}
@@ -266,6 +269,7 @@ function ConfigTab() {
           onChange={set("image_model")}
           placeholder="gpt-image-1"
         />
+        </div>
       </Card>
 
       <Card
@@ -284,6 +288,7 @@ function ConfigTab() {
         }
         saving={saving === "bed"}
       >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Field
           label="图床地址"
           value={form.image_bed_endpoint ?? ""}
@@ -304,6 +309,7 @@ function ConfigTab() {
           onChange={set("image_bed_channel")}
           placeholder="cfr2（原图无损；telegram 等渠道会压缩）"
         />
+        </div>
       </Card>
 
       <Card
@@ -859,7 +865,7 @@ export default function SettingsPanel(props: Props) {
           background: "var(--bg-elevated, var(--bg-secondary))",
         }}
       >
-        <div className="mx-auto flex w-full max-w-4xl gap-6 px-4 lg:px-6">
+        <div className="mx-auto flex w-full max-w-5xl gap-6 px-4 lg:px-6">
           {TABS.map((item) => {
             const active = tab === item.key;
             return (
@@ -882,7 +888,7 @@ export default function SettingsPanel(props: Props) {
       </div>
 
       <div className="scroll-touch min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
-        <div className="mx-auto w-full max-w-4xl">
+        <div className="mx-auto w-full max-w-5xl">
         {tab === "config" && <ConfigTab />}
         {tab === "keywords" && <KeywordsTab {...props} />}
         {tab === "history" && <HistoryTab />}
